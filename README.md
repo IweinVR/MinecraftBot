@@ -267,9 +267,61 @@ Deze module transformeert de bot in een volautomatische handelaar. Hij haalt lan
 
 De `data/` directory bevat statische informatie en parameters die door de features worden geraadpleegd:
 
-*   **`categories.js`**: Definieert de groepering van items (bijv. mineralen, landbouwproducten, wapens) ten behoeve van het sorteersysteem.
-*   **`crops.js`**: Bevat berekeningen, groeitijden en hitbox-data voor verschillende soorten landbouwgewassen.
-*   **`songs.js`**: Data voor muzikale functionaliteiten.
+### 🗂️ Categorieënwoordenboek (`data/categories.js`)
+
+Dit bestand fungeert als de encyclopedie van de bot. Het vertaalt specifieke itemnamen (zoals `diamond_sword` of `stone_sword`) naar logische, overkoepelende groepen (zoals `zwaarden`). Het sorteersysteem gebruikt dit om te bepalen in welke kist een item thuishoort. 
+
+**Hoe te gebruiken in-game**
+* Dit is een configuratiebestand en vereist geen directe commando's. De regels worden op de achtergrond automatisch toegepast zodra je het commando `!sort` gebruikt.
+* Als je nieuwe items uit een mod of toekomstige Minecraft-update wilt groeperen, voeg je simpelweg hier een nieuwe regel toe met een *Regular Expression* (Regex).
+
+**Slimme Beveiligingen (Fail-safes)**
+* **Strikte Hiërarchie (Top-down):** De regels worden strikt van boven naar beneden afgehandeld en de eerste treffer wint. Dit voorkomt overlappende fouten: een `pickaxe` eindigt bijvoorbeeld op de letters `axe`. Doordat de pikhouweel-regel bóven de bijl-regel staat, belanden ze nooit in de verkeerde kist.
+* **Geen 'Overig'-categorie:** Items die door geen enkele regel worden herkend, krijgen bewust de waarde `null` in plaats van een mapje "overig". Hierdoor zal de sorteermodule deze items uitsluitend bij exact dezelfde items leggen, wat voorkomt dat één kist een onoverzichtelijke verzamelbak van willekeurige blokken wordt.
+* **Dynamische Voedselherkenning:** Voedsel wordt niet via een hardgecodeerde lijst herkend, maar direct aan de interne Minecraft-engine (`registry.foodsByName`) gevraagd. Dit betekent dat nieuw voedsel in latere updates direct wordt herkend zonder de code aan te passen.
+* **Giftige Uitzonderingen:** Rot vlees (`rotten_flesh`) en spinnenogen (`spider_eye`) worden door Minecraft gezien als eetbaar, maar staan in deze code hard ingecodeerd bóven de voedsel-regel. Hierdoor verhuizen ze netjes naar de `mobdrops`-kisten en belanden ze niet in je keukenkist.
+
+**Stap-voor-stap Werking**
+1. **Invoer:** De sorteermodule roept `categoryOf(registry, itemName)` aan voor een item in de inventaris.
+2. **Evaluatie:** De bot loopt de lijst met regels af. Hij test de itemnaam tegen de Regex-patronen (bijv. eindigt het op `_bed` of begint het met `raw_`).
+3. **Match:** Zodra een patroon of functie (zoals de voedselcheck) `true` teruggeeft, stopt het zoeken direct en retourneert het script de categorienaam.
+4. **Fallback:** Is de hele lijst doorlopen zonder resultaat? Dan geeft het script `null` terug, waarna de sorteermodule terugvalt op exact-matchen.
+
+### 🌱 Gewasregister & Landbouwlogica (`data/crops.js`)
+
+Dit bestand vormt het agrarische brein van de bot. In plaats van in het landbouw-script eindeloze `if/else`-lijsten te maken, definieert dit register per gewas exact *hoe* het groeit, *wanneer* het rijp is, en *op welke manier* het geoogst moet worden.
+
+**Hoe te gebruiken in-game**
+* Dit bestand draait volledig op de achtergrond zodra je `!farm` gebruikt.
+* Wil je een nieuw gewas uit een toekomstige Minecraft-update (of mods) toevoegen? Dan hoef je het alleen hier in de `CROP_LIST` te registreren met de juiste categorie en eigenschappen. De `farming.js` module snapt de rest dan vanzelf.
+
+**De Vier Oogstcategorieën**
+* **`REPLANT` (Bv. Tarwe, Wortels, Cacao):** Breek het volgroeide blok en plant het gedefinieerde zaad direct terug. Bepaalt zelfs óf het op de grond moet (`below`) of tegen de zijkant van een boom (`side`).
+* **`FRUIT` (Bv. Meloen, Pompoen):** Breek uitsluitend de vrucht. De stengel waaraan de vrucht groeide, wordt met rust gelaten.
+* **`INTERACT` (Bv. Zoete Bessen):** Oogst het gewas met een rechtsklik. Het blok zelf wordt nooit fysiek gebroken.
+* **`VERTICAL` (Bv. Suikerriet, Bamboes):** Breek het *tweede* blok van onderen. De voet van de plant blijft hierdoor intact zodat deze direct weer kan aangroeien.
+
+**Slimme Beveiligingen (Fail-safes)**
+* **De Absolute Zwarte Lijst (`NEVER_BREAK`):** Zelfs als er elders in de logica een berekeningsfout optreedt, weigert de bot categorisch om blokken uit deze lijst te breken. Stengels, onvolgroeide gewassen (zoals de `torchflower_crop`) en akkerland (`farmland`) zijn hierdoor 100% veilig.
+* **Geavanceerde Rijpheidscheck (`ripeAtMaxAge`):** Block-states komen vanuit de server vaak als *string* (bijv. `"7"`) binnen. Deze module lost die verwarring veilig op. Voor complexe twee-hoge planten (zoals de *Pitcher Plant*) is de bot geprogrammeerd om heel specifiek naar de onderste helft te kijken.
+* **Voorraadbeheer (`YIELD_ITEMS` & `SEED_ITEMS`):** Door expliciet te definiëren wat telt als oogst (Yield) en wat telt als zaaigoed (Seed), voorkomt de bot dat hij onbedoeld items dropt of weigert te herplanten.
+  
+### 🎵 Liedjesboek & Entertainment (`data/songs.js`)
+
+Dit bestand is de muzikale bibliotheek van de bot. Het is een pure data-module die uitsluitend songteksten bevat en deze via een kleine 'wrapper' (omhullende code) beschikbaar stelt aan de andere systemen. Door deze grote blokken tekst af te scheiden van de actieve logica, blijft de hoofdcode van de bot schoon en overzichtelijk.
+
+**Hoe te gebruiken in-game**
+* **Zingen:** Typ `zing`, `zingen` of `muziek` in de algemene chat. De Chat-module raadpleegt vervolgens dit bestand en begint de zinnen stuk voor stuk in de chat te typen.
+* **Liedjes toevoegen:** Je kunt de bot eenvoudig nieuwe liedjes leren door in dit bestand een nieuw `songBook.add('Titel', ['Regel 1', 'Regel 2'])` blok toe te voegen.
+
+**Slimme Architectuur & Beveiligingen**
+* **Object-Georiënteerd (OOP):** In plaats van een simpele, losse lijst met tekst te gebruiken, maakt dit script gebruik van strakke `Song` en `SongBook` classes. Dit maakt het ophalen van data voorspelbaar en gestructureerd.
+* **Safe Randomizer (`getRandom`):** De bot kiest volautomatisch een willekeurig liedje uit de lijst. Mocht je per ongeluk alle liedjes uit de code verwijderen, dan crasht de bot niet dankzij een ingebouwde check die simpelweg `null` teruggeeft als de bibliotheek leeg is.
+
+**Stap-voor-stap Werking**
+1. **Verzoek:** De `chat.js` module hoort het woord "zing" in de chat en vraagt aan dit bestand om een liedje.
+2. **Selectie:** De `SongBook` class pakt via wiskundige willekeur (`Math.random()`) een van de beschikbare nummers (zoals "I Got Bills" of "Stay").
+3. **Uitlevering:** Het geselecteerde liedje wordt teruggestuurd naar de chat-module, die vervolgens met een subtiele vertraging (`SONG_LINE_DELAY`) de array met regels tekst in de Minecraft-wereld typt alsof hij echt aan het meezingen is.
 
 ## Onderliggende Architectuur & Libraries
 
