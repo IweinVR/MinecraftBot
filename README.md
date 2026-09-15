@@ -331,9 +331,12 @@ Het project is robuust opgezet met externe afhankelijkheden en interne helper-sc
 *   **Lib Directory**: Bevat gedeelde technische logica. `containers.js`
 *   **Node Modules**: De bot leunt zwaar op externe npm-pakketten. Opvallende afhankelijkheden zijn onder andere `@nxg-org/mineflayer-util-plugin` voor uitgebreide Mineflayer utilities, `protodef-validator` voor protocol data, en `@azure/msal-node` voor de authenticatie via Microsoft-accounts, wat tegenwoordig vereist is voor Minecraft.
 
-## Installatie
+## 🚀 Installatie & Configuratie
 
-Om de bot te laten draaien, dienen de Node.js afhankelijkheden geïnstalleerd te worden. Start hiervoor het volgende commando in de hoofdmap:
+Volg de onderstaande stappen om de bot succesvol te installeren, te configureren en te laten verbinden met jouw server.
 
+### Stap 1: Vereisten (Prerequisites)
+Om deze bot te kunnen draaien, moet **Node.js** (inclusief `npm`) op je systeem geïnstalleerd zijn. Je kunt controleren of je dit al hebt door je terminal of command prompt te openen en het volgende te typen:
 ```bash
-npm install
+node -v
+npm -v
