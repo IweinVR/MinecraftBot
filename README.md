@@ -25,14 +25,14 @@ De `data/` directory bevat statische informatie en parameters die door de featur
 
 *   **`categories.js`**: Definieert de groepering van items (bijv. mineralen, landbouwproducten, wapens) ten behoeve van het sorteersysteem.
 *   **`crops.js`**: Bevat berekeningen, groeitijden en hitbox-data voor verschillende soorten landbouwgewassen.
-*   **`songs.js`**: Data voor muzikale functionaliteiten, waarschijnlijk gebruikt voor het afspelen van Note Block Studio (NBS) bestanden of waarschuwingsgeluiden.
+*   **`songs.js`**: Data voor muzikale functionaliteiten.
 
 ## Onderliggende Architectuur & Libraries
 
 Het project is robuust opgezet met externe afhankelijkheden en interne helper-scripts:
 
 *   **Configuratie**: De algemene instellingen, servergegevens en bot-parameters worden beheerd vanuit `config.js`.
-*   **Lib Directory**: Bevat gedeelde technische logica. `containers.js` regelt waarschijnlijk het openen en uitlezen van kisten en UI-schermen, terwijl `storage.js` lokale data-opslaan of caching afhandelt.
+*   **Lib Directory**: Bevat gedeelde technische logica. `containers.js`
 *   **Node Modules**: De bot leunt zwaar op externe npm-pakketten. Opvallende afhankelijkheden zijn onder andere `@nxg-org/mineflayer-util-plugin` voor uitgebreide Mineflayer utilities, `protodef-validator` voor protocol data, en `@azure/msal-node` voor de authenticatie via Microsoft-accounts, wat tegenwoordig vereist is voor Minecraft.
 
 ## Installatie
