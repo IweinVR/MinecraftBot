@@ -7,7 +7,26 @@ De MinecraftBot is een modulair geautomatiseerd script, gebouwd in Node.js en aa
 
 De core-logica van de bot is opgesplitst in onafhankelijke modules binnen de `features/` directory. Elke module is verantwoordelijk voor een specifieke in-game taak:
 
-*   **Breeding (`breeding.js`)**: Automatiseert het fokken van dieren door automatisch het juiste voedsel toe te dienen aan entiteiten in de omgeving.
+### 🧬 Breeding (`features/breeding.js`)
+
+Deze module is verantwoordelijk voor geautomatiseerd fokken, maar gaat veel verder dan simpelweg voedsel uitdelen. Het houdt nauwkeurig rekening met Vanilla Minecraft-mechanics en de in-game economie om voedselverspilling te voorkomen.
+
+#### Slimme Beveiligingen (Fail-safes)
+* **Geen voedselverspilling:** De Minecraft-server geeft niet aan of een dier al in *love mode* is of nog in een afkoelperiode zit. De bot lost dit op door een interne lijst (`gevoerd`) bij te houden; elk dier wordt per ronde maximaal één keer gevoerd.
+* **Zaad- en Voedselreserve (`spareCount`):** Items zoals wortels, aardappelen en zaden zijn zowel veevoer als plantgoed. De bot berekent dynamisch de voorraad en trekt de benodigde landbouwreserve (`FARM.keepSeedCount` + `BREED.keepFoodCount`) hiervan af, zodat akkers nooit per ongeluk aan dieren worden gevoerd.
+* **Koppel-afstandslogica (`makePairs`):** Twee dieren die te ver uit elkaar staan (meer dan 8 blokken) kunnen elkaar in Vanilla Minecraft niet bereiken, zelfs niet in *love mode*. De bot berekent vooraf via `distanceTo` of partners dicht genoeg bij elkaar staan, om zinloos voeren te vermijden.
+
+#### Stap-voor-stap Werking
+1. **Scannen en Filteren (`scanAnimals`):** Zoekt alle dieren binnen de ingestelde `scanRadius` en groepeert deze per soort.
+2. **Metadata Uitlezen:** De bot leest dynamisch via `bot.registry` de entiteit-metadata uit (onafhankelijk van de Minecraft-versie). Hierdoor filtert hij feilloos baby-dieren en ongetemde wolven of paarden eruit.
+3. **Koppels Maken (`makePairs`):** Volwassen, geldige dieren worden logisch in setjes van twee gezet op basis van hun onderlinge afstand.
+4. **Navigatie & Voeren (`approachAnimal` & `feedAnimal`):** Omdat dieren weglopen, stelt de bot niet eenmalig een pad in, maar controleert hij de actuele locatie continu uit `bot.entities`. Zodra het dier binnen `reachDistance` is, pakt de bot het juiste voedsel en voert hij een interactie (`activateEntity`) uit.
+5. **Veilige Verplaatsing (`breedMovements`):** Parkour (springen) wordt automatisch uitgeschakeld om te voorkomen dat de bot *farmland* vertrapt tot normale aarde terwijl hij achter dieren aan rent.
+
+#### Uitzonderingen & Speciale Mechanieken
+De interne `BREEDABLE` dictionary bevat unieke regels per diersoort:
+* **Wolven (`needsFullHp`):** Een gewonde wolf eet vlees om te genezen in plaats van te paren. De bot controleert eerst of de health minimaal 20 is.
+* **Panda's (`pandaHasBamboo`):** Panda's vereisen de aanwezigheid van bamboe. Een custom `extra`-functie scant via `bot.findBlocks` of er minimaal 8 bamboeblokken binnen 5 blokken afstand van de panda staan.
 *   **Chat (`chat.js`)**: Verwerkt inkomende chatberichten, filtert belangrijke server-informatie en regelt geautomatiseerde reacties.
 *   **Combat (`combat.js`)**: Beheert PVE- of PVP-gevechtshandelingen, inclusief het detecteren van vijandige mobs en het positioneren voor aanvallen.
 *   **Commands (`commands.js`)**: Een systeem voor het verwerken van in-game of console-commando's om de bot direct aan te sturen (bijvoorbeeld voor het starten of stoppen van specifieke taken).
