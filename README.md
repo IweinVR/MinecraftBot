@@ -1,7 +1,10 @@
+MinecraftBot README
+
 Beschrijving
 De MinecraftBot is een modulair geautomatiseerd script, gebouwd in Node.js en aangedreven door de Mineflayer-library. De bot is ontworpen om diverse in-game processen te optimaliseren en volledig te automatiseren. De architectuur is specifiek ingericht voor complexe systemen, waaronder efficiënte landbouw (zoals crop optimalisaties in Hypixel Skyblock), geavanceerde inventaris-sortering en geautomatiseerde handelssystemen.
 
 Functionaliteiten (Features)
+
 De core-logica van de bot is opgesplitst in onafhankelijke modules binnen de features/ directory. Elke module is verantwoordelijk voor een specifieke in-game taak:
 
 Breeding (breeding.js): Automatiseert het fokken van dieren door automatisch het juiste voedsel toe te dienen aan entiteiten in de omgeving.
@@ -27,6 +30,7 @@ Toolsmith (toolsmith.js): Bewaakt de duurzaamheid van gereedschappen en zorgt vo
 Trading (trading.js): Automatiseert handelstransacties. Dit faciliteert interacties met standard villagers (villager trading bots) of externe economische systemen zoals de Bazaar.
 
 Datastructuren
+
 De data/ directory bevat statische informatie en parameters die door de features worden geraadpleegd:
 
 categories.js: Definieert de groepering van items (bijv. mineralen, landbouwproducten, wapens) ten behoeve van het sorteersysteem.
@@ -36,6 +40,7 @@ crops.js: Bevat berekeningen, groeitijden en hitbox-data voor verschillende soor
 songs.js: Data voor muzikale functionaliteiten, waarschijnlijk gebruikt voor het afspelen van Note Block Studio (NBS) bestanden of waarschuwingsgeluiden.
 
 Onderliggende Architectuur & Libraries
+
 Het project is robuust opgezet met externe afhankelijkheden en interne helper-scripts:
 
 Configuratie: De algemene instellingen, servergegevens en bot-parameters worden beheerd vanuit config.js.
@@ -45,11 +50,12 @@ Lib Directory: Bevat gedeelde technische logica. containers.js regelt waarschijn
 Node Modules: De bot leunt zwaar op externe npm-pakketten. Opvallende afhankelijkheden zijn onder andere @nxg-org/mineflayer-util-plugin voor uitgebreide Mineflayer utilities, protodef-validator voor protocol data, en @azure/msal-node voor de authenticatie via Microsoft-accounts, wat tegenwoordig vereist is voor Minecraft.
 
 Installatie
+
 Om de bot te laten draaien, dienen de Node.js afhankelijkheden geïnstalleerd te worden. Start hiervoor het volgende commando in de hoofdmap:
 
-Bash
 npm install
+
+
 Vervolgens kan de bot gestart worden via de hoofd-entrypoint:
 
-Bash
 node Index.js
