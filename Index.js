@@ -127,6 +127,16 @@ async function createBot() {
       // tijdens een gevecht zou de bot dus blokken slopen om bij zijn doel te komen. De rest
       // van deze bot breekt nooit iets zonder opdracht, dus hier ook niet.
       if (bot.pvp?.movements) bot.pvp.movements.canDig = false;
+
+      // Hulplijn bij vastlopers: hieraan zie je achteraf of de pathfinder geen pad vond, te
+      // lang nadacht, of onderweg vastliep en opnieuw begon. Zonder dit is "hij doet niks"
+      // niet te onderscheiden van "hij denkt nog na".
+      bot.on('path_update', (r) => {
+        if (r.status !== 'success') {
+          Logger.debug(`Pad: ${r.status} (${r.path?.length ?? 0} stappen, ${Math.round(r.time ?? 0)}ms)`);
+        }
+      });
+      bot.on('path_reset', (reason) => Logger.debug(`Pad weggegooid: ${reason}`));
     } else {
       Logger.info('Bot gerespawned');
     }

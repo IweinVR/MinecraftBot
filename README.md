@@ -294,14 +294,16 @@ Mineflayer-pathfinder opent hekken (*fence gates*) automatisch om erdoorheen te 
 
 ### ⬆️ Vastlopers overspringen (`watchers/jump.js`)
 
-Mineflayer-pathfinder beslist per tick of hij mag springen door de sprong eerst te *simuleren*. Die simulatie krijgt 20 ticks en eist dat de bot het volgende punt tot op 0,35 blok nadert. Staat de bot al plat tegen het blok aan, dan is zijn snelheid nul (de botsing heeft die weggepoetst) en versnelt hij in de lucht alleen nog heel traag — de simulatie haalt het dan nét niet. Alle spring-checks geven false, en in die situatie zet de pathfinder zelfs `forward` uit: de bot blijft stokstijf tegen het blok staan, geeft zichzelf elke 3,5 seconde een `resetPath('stuck')` en rekent exact hetzelfde pad opnieuw uit. Hetzelfde blok mét aanloop neemt hij wel gewoon.
+Mineflayer-pathfinder beslist per tick of hij mag springen door de sprong eerst te *simuleren*. Die simulatie krijgt 20 ticks en eist dat de bot tot op 0,35 blok bij het volgende punt komt — dus bijna tot het midden van het blok. Staat de bot al plat tegen het blok aan, dan is zijn snelheid nul (de botsing heeft die weggepoetst) en versnelt hij in de lucht alleen nog heel traag: hij komt in de simulatie wél bovenop het blok, maar niet ver genoeg naar binnen. Alle spring-checks geven dan false, en in dat geval zet de pathfinder zelfs `forward` uit: de bot blijft stokstijf tegen het blok staan, geeft zichzelf elke 3,5 seconde een nieuwe padberekening en loopt weer precies zo klem. Een trap lukt wél, want daar is elke stap maar een halve blok en stapt hij er gewoon overheen.
 
 **Werking**
-* Staat de bot meer dan 0,6 seconde stil terwijl hij een pad volgt, dan kijkt de watcher of er in de looprichting een blok ligt waar hij bovenop past (een blok op voethoogte, met twee blokken lucht erboven en boven de bot zelf).
-* Is dat zo, dan drukt de watcher zelf `forward` + `jump` in en houdt dat 0,7 seconde vast — lang genoeg voor een hele sprongboog. Zou hij eerder loslaten, dan zet de pathfinder `forward` meteen weer uit en valt de bot halverwege terug.
+* De watcher meet of de bot *vooruitkomt*, niet of hij stilstaat: blijft hij een seconde lang binnen 0,8 blok van waar hij was terwijl hij ergens heen wil, dan zit hij vast. Tegen een blok aan staat de bot namelijk te schuifelen, en een "staat hij stil"-check gaat daar nooit van af.
+* Is er in de looprichting een blok waar hij bovenop past (blok op voethoogte, twee blokken lucht erboven en boven zichzelf), dan neemt de watcher het over: eerst een stapje achteruit voor de aanloop, dan vooruit + sprint + sprong, 0,8 seconde vastgehouden. Zonder die aanloop komt hij wel omhoog maar niet vooruit — de botsing zet zijn horizontale snelheid elke tick weer op nul.
+* Achteruit gaat alleen als daar ook echt vloer ligt, zodat hij niet achterwaarts een ravijn in stapt. Kan dat niet, dan springt hij vanaf de plek waar hij staat.
+* Hij telt ook mee dat de pathfinder tussen twee berekeningen door even geen pad heeft (`isMoving()` is dan false), maar niet wanneer het doel al bereikt is — anders staat hij te stuiteren terwijl hij met `!follow` naast een stilstaande speler wacht.
 * Is er niets om overheen te springen (een muur van twee hoog, een dichte deur, een mob), dan doet de watcher niets: daar helpt springen niet tegen.
 * Taken die bewust zonder parkour lopen (boeren, fokken, sorteren) laat de watcher met rust, en op akkerland of een schildpadei landt hij nooit: een sprong erop maakt er gewone aarde van of trapt het ei kapot.
-* Na vijf mislukte pogingen op dezelfde plek volgt er een pauze van vijf seconden, zodat de bot niet eindeloos staat te stuiteren.
+* Elke poging komt in de log te staan (`Vastgelopen tegen ... sprong 1/5`), en na vijf mislukte pogingen op dezelfde plek volgt een pauze van vijf seconden.
 
 ### 💥 Creeper-alarm (`watchers/creeper.js`)
 
