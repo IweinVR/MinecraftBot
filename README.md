@@ -265,7 +265,7 @@ Deze module transformeert de bot in een volautomatische handelaar. Hij haalt lan
 
 ## Achtergrondprocessen (Watchers)
 
-Naast de commando-gestuurde features draaien er in de `watchers/` directory twee processen continu mee, vanaf het moment dat de bot spawnt, zonder dat daar een commando voor nodig is.
+Naast de commando-gestuurde features draaien er in de `watchers/` directory vijf processen continu mee, vanaf het moment dat de bot spawnt, zonder dat daar een commando voor nodig is.
 
 ### 🚪 Deuren openen (`watchers/doors.js`)
 
@@ -284,6 +284,16 @@ Mineflayer-pathfinder opent hekken (*fence gates*) automatisch om erdoorheen te 
 * De watcher houdt via het `blockUpdate`-event bij welke hekken open staan, ook als de pathfinder ze zelf opende.
 * Zodra een hek minstens 1,5 seconde open staat én de bot er niet meer vlak naast staat, klikt de watcher het weer dicht (`activateBlock`).
 * Staat de bot nog naast het hek (bijvoorbeeld omdat hij er net doorheen loopt), dan wordt het nog niet gesloten om hem niet voor zijn eigen neus op te sluiten.
+
+### ⬆️ Vastlopers overspringen (`watchers/jump.js`)
+
+Mineflayer-pathfinder beslist per tick of hij mag springen door de sprong eerst te *simuleren*. Die simulatie krijgt 20 ticks en eist dat de bot het volgende punt tot op 0,35 blok nadert. Staat de bot al plat tegen het blok aan, dan is zijn snelheid nul (de botsing heeft die weggepoetst) en versnelt hij in de lucht alleen nog heel traag — de simulatie haalt het dan nét niet. Alle spring-checks geven false, en in die situatie zet de pathfinder zelfs `forward` uit: de bot blijft stokstijf tegen het blok staan, geeft zichzelf elke 3,5 seconde een `resetPath('stuck')` en rekent exact hetzelfde pad opnieuw uit. Hetzelfde blok mét aanloop neemt hij wel gewoon.
+
+**Werking**
+* Staat de bot meer dan 0,6 seconde stil terwijl hij een pad volgt, dan kijkt de watcher of er in de looprichting een blok ligt waar hij bovenop past (een blok op voethoogte, met twee blokken lucht erboven en boven de bot zelf).
+* Is dat zo, dan drukt de watcher zelf `forward` + `jump` in en houdt dat 0,7 seconde vast — lang genoeg voor een hele sprongboog. Zou hij eerder loslaten, dan zet de pathfinder `forward` meteen weer uit en valt de bot halverwege terug.
+* Is er niets om overheen te springen (een muur van twee hoog, een dichte deur, een mob), dan doet de watcher niets: daar helpt springen niet tegen.
+* Na vijf mislukte pogingen op dezelfde plek volgt er een pauze van vijf seconden, zodat de bot niet eindeloos staat te stuiteren.
 
 ### 👋 Welkomstbericht (`watchers/greeting.js`)
 
