@@ -46,6 +46,7 @@ const { startDrownWatcher } = require('./watchers/safety');
 const { startGateWatcher } = require('./watchers/gates');
 const { startJoinGreeter } = require('./watchers/greeting');
 const { startJumpWatcher } = require('./watchers/jump');
+const { startCreeperWatcher } = require('./watchers/creeper');
 
 async function createBot() {
   Logger.info(`Connecting to ${CONFIG.server.host}:${CONFIG.server.port} as ${CONFIG.server.username}`);
@@ -60,6 +61,7 @@ async function createBot() {
   startGateWatcher(bot);
   startJoinGreeter(bot);
   startJumpWatcher(bot);
+  startCreeperWatcher(bot);
 
   // mineflayer-auto-eat is ESM-only; dit project is CommonJS, dus het heeft een dynamic import nodig.
   // NOTE: bot.loadPlugin() *queuet* de plugin alleen tot mineflayers interne 'inject_allowed'-punt
@@ -283,7 +285,12 @@ async function createBot() {
     botState.fallingTicks = 0;
     botState.bucketUsed = false;
 
-    Logger.info('Herverbinden over 5s...');
+    // Normaal vijf seconden, maar het creeper-alarm zet hier een langere pauze neer: dan is
+    // de bot bewust weggegaan en heeft meteen terugkomen geen zin.
+    const delay = botState.reconnectDelay ?? 5000;
+    botState.reconnectDelay = null;
+
+    Logger.info(`Herverbinden over ${Math.round(delay / 1000)}s...`);
     setTimeout(() => {
       // createBot is async: zonder catch wordt een fout hier een unhandled rejection,
       // en die sloopt in moderne Node het hele proces.
@@ -292,7 +299,7 @@ async function createBot() {
         reconnectScheduled = false;
         scheduleReconnect();
       });
-    }, 5000);
+    }, delay);
   };
 
   bot.on('kicked', (reason) => {

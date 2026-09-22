@@ -272,7 +272,7 @@ Deze module transformeert de bot in een volautomatische handelaar. Hij haalt lan
 
 ## Achtergrondprocessen (Watchers)
 
-Naast de commando-gestuurde features draaien er in de `watchers/` directory vijf processen continu mee, vanaf het moment dat de bot spawnt, zonder dat daar een commando voor nodig is.
+Naast de commando-gestuurde features draaien er in de `watchers/` directory zes processen continu mee, vanaf het moment dat de bot spawnt, zonder dat daar een commando voor nodig is.
 
 ### 🚪 Deuren openen (`watchers/doors.js`)
 
@@ -302,6 +302,16 @@ Mineflayer-pathfinder beslist per tick of hij mag springen door de sprong eerst 
 * Is er niets om overheen te springen (een muur van twee hoog, een dichte deur, een mob), dan doet de watcher niets: daar helpt springen niet tegen.
 * Taken die bewust zonder parkour lopen (boeren, fokken, sorteren) laat de watcher met rust, en op akkerland of een schildpadei landt hij nooit: een sprong erop maakt er gewone aarde van of trapt het ei kapot.
 * Na vijf mislukte pogingen op dezelfde plek volgt er een pauze van vijf seconden, zodat de bot niet eindeloos staat te stuiteren.
+
+### 💥 Creeper-alarm (`watchers/creeper.js`)
+
+Een creeper is het enige monster waar terugvechten averechts werkt: ernaartoe lopen is precies wat hem laat ontploffen, en daarom staat hij ook in `NO_FIGHT_MOBS`. Weglopen lukt maar half, want hij loopt even hard als de bot. Wat wél altijd werkt is uitloggen.
+
+**Werking**
+* Komt er een creeper binnen 10 blokken, dan roept de bot in de chat om hulp mét zijn eigen coördinaten: *"Yo, creeper bij mij op 120 64 -310! Kom die plz helpen wegdoen."*
+* Daarna meldt hij netjes dat hij zo terug is en verbreekt hij de verbinding (`bot.quit`). De herverbind-logica in `Index.js` wacht dan een minuut in plaats van de gebruikelijke vijf seconden — dat stuurt de watcher door via `botState.reconnectDelay`.
+* Na het opnieuw inloggen houdt hij zich 15 seconden stil, en tussen twee alarmen zit minstens 30 seconden. Zonder die twee pauzes zou een creeper die blijft staan de bot in een lus van uitloggen en inloggen houden, met elke keer dezelfde chatberichten.
+* Alle tijden en de afstand staan onder `creeper` in `config.js`.
 
 ### 👋 Welkomstbericht (`watchers/greeting.js`)
 

@@ -103,6 +103,16 @@ const CONFIG = {
     foodThreshold: 15,
     maxHealth: 20,
   },
+  // Creeper-alarm: zie watchers/creeper.js. Terugvechten kan niet (ernaartoe lopen laat hem
+  // juist ontploffen) en weglopen lukt maar half, dus roept de bot om hulp en logt hij uit.
+  creeper: {
+    range: 10,            // binnen zoveel blokken slaat hij alarm
+    awayMs: 60000,        // zo lang blijft hij weg voordat hij opnieuw inlogt
+    graceMs: 15000,       // na het inloggen zo lang geen nieuw alarm (anders een uitlog-lus)
+    cooldownMs: 30000,    // en tussen twee alarmen zit minstens dit
+    checkInterval: 250,
+    chatGap: 400,         // pauze tussen de twee chatberichten, tegen spamfilters
+  },
   combat: {
     fightTimeout: 120000,
     defendTimeout: 30000,      // hoe lang hij hooguit achter één monster aan blijft vechten

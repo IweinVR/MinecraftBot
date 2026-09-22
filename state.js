@@ -30,6 +30,9 @@ const botState = {
   lastGoal: null,
   followToken: null,
   lastAttacker: null,
+  // Hoe lang de volgende herverbinding mag wachten. Normaal null (dan geldt de standaard van
+  // 5 seconden); het creeper-alarm zet hem op een minuut zodat de bot echt even weg is.
+  reconnectDelay: null,
   isFleeing: false,
   isFighting: false,
   stopFighting: false,
