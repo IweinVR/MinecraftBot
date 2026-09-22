@@ -1,7 +1,7 @@
 # MinecraftBot README
 
 **Beschrijving**
-De MinecraftBot is een modulair geautomatiseerd script, gebouwd in Node.js en aangedreven door de Mineflayer-library. De bot is ontworpen om diverse in-game processen te optimaliseren en volledig te automatiseren. De architectuur is specifiek ingericht voor complexe systemen, waaronder efficiënte landbouw (zoals crop optimalisaties in Hypixel Skyblock), geavanceerde inventaris-sortering en geautomatiseerde handelssystemen.
+De MinecraftBot is een modulair geautomatiseerd script, gebouwd in Node.js en aangedreven door de Mineflayer-library. Hij speelt mee als gewone speler op een vanilla- of Paper-server en neemt het werk over dat je er zelf niet meer bij wilt doen: oogsten en herplanten, dieren fokken, tunnels graven, kisten sorteren, handelen met dorpelingen, vissen, spullen ophalen en gereedschap bijmaken. Daarnaast past hij op zichzelf — eten, verdrinken, valschade, monsters — en reageert hij op gewone chatberichten. Je stuurt hem aan met commando's in de chat; de rest doet hij zelfstandig.
 
 ## Functionaliteiten (Features)
 
@@ -88,7 +88,7 @@ Alle commando's vereisen een uitroepteken (`!`) vooraf. Een kleine greep uit de 
 * **Tunnels & Delven:** `!tunnel naar mij`, `!tunnel noord 20` of `!collect <blok> <aantal>`. Voor tunnels kun je optioneel breedte en hoogte toevoegen (bijv. `!tunnel noord 20 3 3`).
 * **Noodrem:** Typ `!stop` in de chat. Dit is de ultieme noodrem die direct álle huidige acties van de bot afbreekt.
 * **Informatie:** `!help` toont een lijst met alle commando's. `!pos` rapporteert de huidige locatie en inventarisstatus in de chat.
-* **Gedelegeerde acties:** Alle functies uit andere modules activeer je hier (bijv. `!farm`, `!sort`, `!vis`, `!trade`, `!maak <item>`, `!haal <item>`).
+* **Gedelegeerde acties:** Alle functies uit andere modules activeer je hier (bijv. `!farm`, `!sort`, `!vis`, `!trade`, `!maak <item>`, `!haal <item>`). Veel daarvan nemen een aantal of een naam als argument: `!farm tarwe` (alleen dat gewas), `!vis 20` (aantal worpen), `!maak 8 torch` en `!haal 64 cobblestone`.
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Crash Preventie (Prototype-check):** Bij het uitlezen van argumentloze commando's controleert de code veilig via `hasOwnProperty`. Dit voorkomt dat een grapjas de bot laat crashen door JavaScript-systeemwoorden zoals `!__proto__` of `!constructor` in de chat te typen.
@@ -360,7 +360,8 @@ Dit bestand vormt het agrarische brein van de bot. In plaats van in het landbouw
 
 **Hoe te gebruiken in-game**
 * Dit bestand draait volledig op de achtergrond zodra je `!farm` gebruikt.
-* Wil je een nieuw gewas uit een toekomstige Minecraft-update (of mods) toevoegen? Dan hoef je het alleen hier in de `CROP_LIST` te registreren met de juiste categorie en eigenschappen. De `farming.js` module snapt de rest dan vanzelf.
+* Wil je een nieuw gewas uit een toekomstige Minecraft-update (of mods) toevoegen? Dan registreer je het hier in de `CROP_LIST` met de juiste categorie en eigenschappen, en geef je het een regel in `CROP_GROUPS` met de namen waarop het moet luisteren. De `farming.js` module snapt de rest dan vanzelf.
+* **Gewasnamen (`CROP_GROUPS` / `findCropGroup`):** Hier staat per gewas onder welke namen je het in de chat kunt aanwijzen voor `!farm <gewas>` — Nederlands en Engels door elkaar (`tarwe`, `graan`, `wheat`), met spaties of underscores. Eén regel kan meerdere bloknamen bevatten, wat kelp, gloeibessen en de bekerplant nodig hebben: die bestaan uit twee blokken die allebei bij hetzelfde gewas horen.
 
 **De Vier Oogstcategorieën**
 * **`REPLANT` (Bv. Tarwe, Wortels, Cacao):** Breek het volgroeide blok en plant het gedefinieerde zaad direct terug. Bepaalt zelfs óf het op de grond moet (`below`) of tegen de zijkant van een boom (`side`).
@@ -394,8 +395,12 @@ Dit bestand is de muzikale bibliotheek van de bot. Het is een pure data-module d
 
 Het project is robuust opgezet met externe afhankelijkheden en interne helper-scripts:
 
-*   **Configuratie**: De algemene instellingen, servergegevens en bot-parameters worden beheerd vanuit `config.js`.
-*   **Lib Directory**: Bevat gedeelde technische logica. `containers.js`
+*   **Configuratie**: De algemene instellingen, servergegevens en bot-parameters worden beheerd vanuit `config.js`. Vrijwel elk getal dat in de beschrijvingen hierboven genoemd wordt (zoekstralen, wachttijden, drempels) staat daar en niet in de modules zelf.
+*   **Gedeelde state (`state.js`)**: Eén object dat alle modules importeren, zodat een commando in de ene module een lus in de andere kan afbreken. Per taak geldt het drieluik `isX` (draait hij nu?), `stopX` (moet hij ophouden?) en `xSession` (welke run is de huidige?). `abortAllTasks()` uit `utils.js` zet dat drieluik in één keer terug — dat gebeurt bij `!stop`, bij de dood van de bot en bij een herverbinding.
+*   **Helpers (`utils.js`)**: De gedeelde gereedschapskist. Hier staan onder andere `setMovements()` (de enige plek waar een `Movements`-object gemaakt wordt), `enforceNoBlockPlacing()` (die afdwingt dat géén enkele plugin de pathfinder blokken laat plaatsen), de item-zoekers en `abortAllTasks()`.
+*   **Watchers (`watchers/`)**: Zes achtergrondprocessen die vanaf het spawnen meedraaien zonder commando — zie de sectie hierboven.
+*   **Data (`data/`)**: Statische registers los van de logica: het gewasregister (`crops.js`), het sorteerwoordenboek (`categories.js`) en het liedjesboek (`songs.js`).
+*   **Lib Directory**: Bevat gedeelde technische logica: `containers.js` (veilig kisten openen, sluiten en leegtrekken) en `storage.js` (de kistenindex die de koerier en de sorteerder gebruiken).
 *   **Node Modules**: De directe afhankelijkheden (zie `package.json`) zijn `mineflayer`, `mineflayer-pathfinder`, `mineflayer-auto-eat`, `mineflayer-collectblock`, `mineflayer-armor-manager`, `mineflayer-pvp` en `vec3`. Pakketten als `@nxg-org/mineflayer-util-plugin`, `protodef-validator` en `@azure/msal-node` (voor de Microsoft-authenticatie) zitten ook in `node_modules`, maar zijn transitieve afhankelijkheden van Mineflayer zelf — dit project roept ze niet rechtstreeks aan.
 
 ## 🚀 Installatie & Configuratie
@@ -436,3 +441,5 @@ Bij `auth: 'microsoft'` en de eerste keer inloggen toont de terminal een code en
 
 ### Stap 5: In-game gebruiken
 Zodra de bot in de wereld staat, kun je hem aansturen met de commando's uit de secties hierboven. Typ `!help` in de chat voor een overzicht, en `!stop` werkt altijd als directe noodrem.
+
+Een paar dingen doet hij uit zichzelf, zonder commando: deuren openen en hekken sluiten, iedereen begroeten die inlogt, omhoog zwemmen als hij dreigt te verdrinken, terugvechten als een monster hem aanvalt, en — bij een creeper binnen tien blokken — in de chat om hulp roepen en een minuutje uitloggen. Verdwijnt hij plotseling van de server, kijk dan dus eerst even in de chat. Een taak die op dat moment liep (`!farm`, `!tunnel`) begint na het opnieuw inloggen niet vanzelf weer.
