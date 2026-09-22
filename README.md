@@ -285,6 +285,14 @@ Mineflayer-pathfinder opent hekken (*fence gates*) automatisch om erdoorheen te 
 * Zodra een hek minstens 1,5 seconde open staat én de bot er niet meer vlak naast staat, klikt de watcher het weer dicht (`activateBlock`).
 * Staat de bot nog naast het hek (bijvoorbeeld omdat hij er net doorheen loopt), dan wordt het nog niet gesloten om hem niet voor zijn eigen neus op te sluiten.
 
+### 👋 Welkomstbericht (`watchers/greeting.js`)
+
+Zodra iemand de server joint, stelt de bot zichzelf automatisch voor in de chat.
+
+**Werking**
+* Bij elke `playerJoined` (behalve die van de bot zelf) stuurt de bot een kort welkomstbericht: dat hij een bot is en nog foutjes kan hebben, dat bugs naar Iwein gestuurd mogen worden, en dat je voor een overzicht van wat hij kan op Iwein zijn GitHub kunt kijken of het aan Iwein kunt vragen.
+* Direct bij het inloggen stuurt de server de hele bestaande spelerslijst in één keer door, wat ook allemaal `playerJoined`-events oplevert. De watcher wacht daarom de eerste paar seconden na het spawnen af voordat hij begint te reageren, zodat hij niet iedereen die al online was begroet.
+
 ### 🌊 Verdrinkingsbeveiliging (`watchers/safety.js`)
 
 De pathfinder zwemt alleen omhoog zolang hij actief een pad volgt. Loopt de bot tijdens bijvoorbeeld een `!goto` een meer in met het doel aan de overkant, dan zwemt hij simpelweg over de bodem door tot zijn lucht op is. Deze watcher bewaakt daarom los van elke taak de zuurstof (`bot.oxygenLevel`).
