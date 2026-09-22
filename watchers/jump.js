@@ -17,17 +17,26 @@
  * Deze watcher kijkt puur naar het resultaat: komt de bot niet vooruit terwijl hij ergens heen
  * wil, en ligt er een blok voor hem waar hij bovenop past? Dan neemt hij het even over.
  *
- * Drie dingen die nodig bleken:
+ * Vier dingen die nodig bleken:
  *   1. Meten of hij VOORUIT komt, niet of hij stilstaat. Tussen twee padberekeningen door staat
  *      de bot te schuifelen tegen het blok, en dat zijn steeds nieuwe kleine beweginkjes: een
  *      "staat hij stil"-check gaat daardoor nooit af.
  *   2. Aanloop nemen. Vanuit stilstand tegen het blok aan springen helpt niet: de botsing zet de
  *      horizontale snelheid elke tick op nul zolang hij lager staat dan de bovenkant, dus komt
  *      hij boven het blok aan zonder vaart. Daarom eerst een halve stap achteruit, dan pas
- *      vooruit + sprint + sprong. Dat is precies het "met aanloop lukt het wel" uit de praktijk.
- *   3. Na de pathfinder draaien, anders zet die forward in dezelfde tick weer uit. Daarom wordt
+ *      vooruit + sprong. Dat is precies het "met aanloop lukt het wel" uit de praktijk.
+ *   3. Zo gewoon mogelijk springen: de spronktoets kort indrukken en verder alleen vooruit.
+ *      Sprint erbij gaf een lunge van 0,2 blok op het moment van afzetten die de server niet
+ *      per se meerekent, en jump vasthouden laat de bot bij elke landing meteen opnieuw
+ *      springen. Allebei leverden een bot op die stuiterde of in de lucht bleef hangen in
+ *      plaats van netjes boven op het blok te eindigen.
+ *   4. Na de pathfinder draaien, anders zet die forward in dezelfde tick weer uit. Daarom wordt
  *      de listener pas bij de eerste spawn geregistreerd: de plugins zijn dan al geinjecteerd
  *      (dat gebeurt op inject_allowed, vlak na createBot), dus staan wij achteraan in de rij.
+ *
+ * Blijft hij ondanks dat alles in de lucht hangen (niet op de grond, en toch niet vallen), dan
+ * is dat geen sprong meer maar een desync tussen bot en server. Dan laat de watcher alles los in
+ * plaats van door te duwen, en zet hij het in de log.
  */
 
 const botState = require('../state');
@@ -36,7 +45,9 @@ const { Logger } = require('../utils');
 const PROGRESS_EPSILON = 0.8;   // zoveel moet hij opschuiven om als "vooruit" te tellen
 const STUCK_MS = 1000;          // blijft hij binnen die straal hangen, dan zit hij vast
 const BACK_MS = 220;            // zo lang achteruit voor de aanloop
-const JUMP_MS = 800;            // en zo lang vooruit + sprint + sprong: een hele sprongboog
+const JUMP_MS = 800;            // zo lang blijft hij vooruit duwen tijdens de sprong
+const JUMP_PULSE_MS = 200;      // maar de spronktoets zelf maar zo lang, net als een speler
+const HOVER_MS = 1200;          // niet op de grond en toch niet vallen = desync, niet duwen
 const COOLDOWN_MS = 500;        // pauze na een poging; jump moet los, zie release()
 const MAX_ATTEMPTS = 5;         // daarna een lange pauze i.p.v. eindeloos staan stuiteren
 const GIVEUP_MS = 5000;
@@ -134,9 +145,11 @@ function startJumpWatcher(bot) {
   let anchorAt = 0;
   let phase = null;         // null | back | jump
   let phaseUntil = 0;
+  let jumpUntil = 0;        // tot wanneer de spronktoets ingedrukt blijft
   let jumpFrom = null;
   let cooldownUntil = 0;
   let attempts = 0;
+  let hoverSince = 0;
 
   function forget() {
     anchor = null;
@@ -146,17 +159,16 @@ function startJumpWatcher(bot) {
 
   function release() {
     // jump moet expliciet los: prismarine-physics zet de sprongcooldown (jumpTicks) alleen
-    // terug op nul in een tick waarin jump NIET ingedrukt staat. Blijft hij staan, dan kan de
-    // bot maar een keer per 10 ticks springen.
+    // terug op nul in een tick waarin jump NIET ingedrukt staat.
     bot.setControlState('jump', false);
     bot.setControlState('back', false);
-    bot.setControlState('sprint', false);
     // forward laten we aan de pathfinder: die zet hem de volgende tick toch weer zoals hij hem
     // hebben wil. Alleen als er geen pad meer loopt moeten wij hem zelf uitzetten, anders rent
     // de bot door nadat zijn doel al bereikt is.
     if (!bot.pathfinder?.isMoving()) bot.setControlState('forward', false);
     phase = null;
     phaseUntil = 0;
+    jumpUntil = 0;
     jumpFrom = null;
     anchor = null;          // na een poging opnieuw meten
     anchorAt = 0;
@@ -166,13 +178,47 @@ function startJumpWatcher(bot) {
   function startJumpPhase(now) {
     phase = 'jump';
     phaseUntil = now + JUMP_MS;
+    jumpUntil = now + JUMP_PULSE_MS;
     jumpFrom = bot.entity.position.clone();
+  }
+
+  /**
+   * Blijft de bot in de lucht hangen?
+   *
+   * Dat is geen sprong meer maar een desync: mineflayer denkt dat er iets onder hem zit
+   * (of de server denkt van niet). Niet omhoog, niet omlaag, en niet op de grond. Doorgaan met
+   * vooruit duwen maakt het alleen maar erger, dus: alles loslaten en hem laten vallen.
+   */
+  function hangtInDeLucht(now) {
+    const vy = bot.entity.velocity.y;
+    if (bot.entity.onGround || bot.entity.isInWater || Math.abs(vy) > 0.02) {
+      hoverSince = 0;
+      return false;
+    }
+    if (!hoverSince) {
+      hoverSince = now;
+      return false;
+    }
+    return now - hoverSince >= HOVER_MS;
   }
 
   function tick() {
     if (!bot.entity) return;
     const now = Date.now();
     const pos = bot.entity.position;
+
+    if (hangtInDeLucht(now)) {
+      Logger.warn(`Blijft in de lucht hangen op ${pos.x.toFixed(1)} ${pos.y.toFixed(2)} ${pos.z.toFixed(1)}, controls los`);
+      hoverSince = 0;
+      bot.setControlState('jump', false);
+      bot.setControlState('back', false);
+      bot.setControlState('forward', false);
+      phase = null;
+      phaseUntil = 0;
+      jumpUntil = 0;
+      cooldownUntil = now + COOLDOWN_MS;
+      return;
+    }
 
     if (phase === 'back') {
       if (now >= phaseUntil) {
@@ -191,17 +237,20 @@ function startJumpWatcher(bot) {
       // Geslaagd = weer op de grond, maar een blok hoger.
       const climbed = bot.entity.onGround && jumpFrom && pos.y - jumpFrom.y >= 0.9;
       if (climbed || now >= phaseUntil || !wantsToMove(bot)) {
-        if (climbed) {
-          Logger.debug('Sprong gelukt, bot staat een blok hoger');
-          attempts = 0;
+        if (jumpFrom) {
+          const gewonnen = (pos.y - jumpFrom.y).toFixed(2);
+          Logger.debug(`Sprong klaar: ${gewonnen} blok hoogte, onGround=${bot.entity.onGround}`);
         }
+        if (climbed) attempts = 0;
         release();
         return;
       }
+      // De spronktoets maar kort indrukken, net als een speler. Blijft hij ingedrukt, dan
+      // springt de bot bij het landen meteen opnieuw en komt hij nooit tot stilstand op het
+      // blok waar hij net op geklommen is.
+      bot.setControlState('jump', now < jumpUntil);
       bot.setControlState('back', false);
       bot.setControlState('forward', true);
-      bot.setControlState('sprint', true);
-      bot.setControlState('jump', true);
       return;
     }
 
@@ -261,7 +310,7 @@ function startJumpWatcher(bot) {
       return;
     }
 
-    Logger.info(`Vastgelopen tegen ${block.name} op ${block.position.x} ${block.position.y} ${block.position.z}, sprong ${attempts}/${MAX_ATTEMPTS}`);
+    Logger.info(`Vastgelopen tegen ${block.name} op ${block.position.x} ${block.position.y} ${block.position.z}, sprong ${attempts}/${MAX_ATTEMPTS} (bot staat op y=${pos.y.toFixed(2)})`);
 
     // Eerste poging meteen springen (soms staat hij nog net ver genoeg af), daarna met aanloop.
     if (attempts === 1 || !canBackUp(bot)) {
