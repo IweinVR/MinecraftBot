@@ -60,7 +60,7 @@ Je hoeft voor deze feature géén commando's met een `!` te gebruiken. Typ simpe
 Deze module beheert alles wat te maken heeft met gevaar, verdediging en overleving. Het regelt gevechten met spelers en monsters, het ontwijken van de dood (bijvoorbeeld via MLG-water), vluchtgedrag en zelfs gecontroleerde zelfmoord.
 
 **Hoe te gebruiken in-game**
-* **Vechten (`!vecht` of chat "vecht tegen mij"):** De bot pakt zijn beste wapen en start een duel via de `mineflayer-pvp` plugin.
+* **Vechten (chat "vecht tegen mij"):** Er is geen `!`-commando voor; typ in de gewone chat "vecht tegen mij" en de bot triggert `fightPlayer`, pakt zijn beste wapen en start een duel via de `mineflayer-pvp` plugin.
 * **Slapen (`!bed`):** De bot zoekt het dichtstbijzijnde bed en stelt zijn spawnpoint in (werkt alleen 's nachts of bij onweer).
 * **Zelfmoord (`!die`):** De bot zoekt het dichtstbijzijnde monster, lava of vuur op om zichzelf te elimineren en terug te keren naar spawn.
 * **Automatisch:** De bot voert automatisch de 'MLG water bucket' truc uit bij diepe vallen, draait zich om naar spelers die hem slaan, en vlucht bij lage levenspunten.
@@ -263,6 +263,28 @@ Deze module transformeert de bot in een volautomatische handelaar. Hij haalt lan
 3. **Onderhandelen (`tradeWithVillager`):** Hij stapt op elke dorpeling af, controleert of ze boer zijn, en pompt de ruilen maximaal vol totdat de dorpeling weigert (trade locked) of de gewassen op zijn.
 4. **Winst Afstorten (`depositEmeralds`):** Na zijn ronde navigeert de bot naar de kluiskist (of terug naar de invoerkist) en stort hij alle verdiende smaragden veilig af.
 
+## Achtergrondprocessen (Watchers)
+
+Naast de commando-gestuurde features draaien er in de `watchers/` directory twee processen continu mee, vanaf het moment dat de bot spawnt, zonder dat daar een commando voor nodig is.
+
+### 🚪 Deuren openen (`watchers/doors.js`)
+
+Mineflayer-pathfinder herkent standaard alleen hekken (*fence gates*) als iets dat vanzelf opengaat, nooit echte deuren. Deze watcher lost dat apart op.
+
+**Werking**
+* Elke 250ms checkt de bot of er, in de richting waar hij op dat moment heen kijkt, een gesloten deur staat (op voet- of hoofdhoogte).
+* Is dat zo, dan klikt de bot de deur automatisch open (`activateBlock`).
+* IJzeren deuren worden bewust overgeslagen: die gaan niet met de hand open, dus klikken zou alleen maar een zinloze interactie per 250ms opleveren.
+
+### 🌊 Verdrinkingsbeveiliging (`watchers/safety.js`)
+
+De pathfinder zwemt alleen omhoog zolang hij actief een pad volgt. Loopt de bot tijdens bijvoorbeeld een `!goto` een meer in met het doel aan de overkant, dan zwemt hij simpelweg over de bodem door tot zijn lucht op is. Deze watcher bewaakt daarom los van elke taak de zuurstof (`bot.oxygenLevel`).
+
+**Werking**
+* Onder 14/20 zuurstof zwemt de bot actief omhoog, ongeacht welke taak er loopt.
+* Onder 8/20 zuurstof laat de bot ook zijn huidige doel los (`bot.pathfinder.stop()`) en meldt dit in de chat, zodat hij niet blijft doorzwemmen naar een doel aan de overkant van het water terwijl hij bijna verdrinkt.
+* Is de bot weer boven water, dan wordt alles automatisch teruggezet.
+
 ## Datastructuren
 
 De `data/` directory bevat statische informatie en parameters die door de features worden geraadpleegd:
@@ -329,7 +351,7 @@ Het project is robuust opgezet met externe afhankelijkheden en interne helper-sc
 
 *   **Configuratie**: De algemene instellingen, servergegevens en bot-parameters worden beheerd vanuit `config.js`.
 *   **Lib Directory**: Bevat gedeelde technische logica. `containers.js`
-*   **Node Modules**: De bot leunt zwaar op externe npm-pakketten. Opvallende afhankelijkheden zijn onder andere `@nxg-org/mineflayer-util-plugin` voor uitgebreide Mineflayer utilities, `protodef-validator` voor protocol data, en `@azure/msal-node` voor de authenticatie via Microsoft-accounts, wat tegenwoordig vereist is voor Minecraft.
+*   **Node Modules**: De directe afhankelijkheden (zie `package.json`) zijn `mineflayer`, `mineflayer-pathfinder`, `mineflayer-auto-eat`, `mineflayer-collectblock`, `mineflayer-armor-manager`, `mineflayer-pvp` en `vec3`. Pakketten als `@nxg-org/mineflayer-util-plugin`, `protodef-validator` en `@azure/msal-node` (voor de Microsoft-authenticatie) zitten ook in `node_modules`, maar zijn transitieve afhankelijkheden van Mineflayer zelf — dit project roept ze niet rechtstreeks aan.
 
 ## 🚀 Installatie & Configuratie
 
@@ -340,3 +362,32 @@ Om deze bot te kunnen draaien, moet **Node.js** (inclusief `npm`) op je systeem 
 ```bash
 node -v
 npm -v
+```
+
+### Stap 2: Dependencies installeren
+Download of clone dit project, open een terminal in de projectmap en installeer de benodigde npm-pakketten:
+```bash
+npm install
+```
+
+### Stap 3: Server instellen (`config.js`)
+De verbindingsgegevens staan niet in een los `.env`-bestand, maar direct in het `server`-blok bovenaan `config.js`:
+```js
+server: {
+  host: 'localhost',
+  port: 25565,
+  auth: 'microsoft',
+  version: '26.1',
+},
+```
+Pas `host` en `port` aan naar het adres van jouw Minecraft-server. Laat `auth: 'microsoft'` staan als je met een Microsoft-account inlogt; zet dit op `'offline'` voor een offline-mode/cracked server. Alle overige gedragsinstellingen (zoektstralen, timeouts, drempels per feature) staan verderop in datzelfde bestand.
+
+### Stap 4: De bot starten
+Start de bot vanuit de projectmap met:
+```bash
+npm start
+```
+Bij `auth: 'microsoft'` en de eerste keer inloggen toont de terminal een code en een URL (`microsoft.com/link`). Log daarmee eenmalig in via een browser; het inlogtoken wordt daarna lokaal gecachet, zodat je dit niet bij elke herstart hoeft te herhalen.
+
+### Stap 5: In-game gebruiken
+Zodra de bot in de wereld staat, kun je hem aansturen met de commando's uit de secties hierboven. Typ `!help` in de chat voor een overzicht, en `!stop` werkt altijd als directe noodrem.
