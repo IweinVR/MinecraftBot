@@ -37,6 +37,12 @@ const COOLDOWN_MS = 400;     // pauze na een poging; jump moet los, zie release(
 const MAX_ATTEMPTS = 5;      // daarna een lange pauze i.p.v. eindeloos staan stuiteren
 const GIVEUP_MS = 5000;
 
+// Blokken waar de bot niet op mag landen. Akkerland wordt vertrapt tot gewone aarde zodra er
+// iets op valt, en een schildpadei gaat kapot. Precies daarom zetten farming.js en de andere
+// taken allowParkour op false; deze lijst is het vangnet voor de gevallen waarin er wél met
+// springen gelopen mag worden, zoals een !goto dwars over een akker.
+const NO_LANDING = new Set(['farmland', 'turtle_egg']);
+
 function isPassable(block) {
   return !!block && block.boundingBox === 'empty';
 }
@@ -69,6 +75,7 @@ function jumpableAhead(bot) {
     const block = bot.blockAt(base);
     // Alleen boundingBox 'block': op een hek of een muur kan de bot toch niet landen.
     if (!block || block.boundingBox !== 'block') continue;
+    if (NO_LANDING.has(block.name)) continue;
     if (!isPassable(bot.blockAt(base.offset(0, 1, 0)))) continue;
     if (!isPassable(bot.blockAt(base.offset(0, 2, 0)))) continue;
     return block;
@@ -125,6 +132,13 @@ function startJumpWatcher(bot) {
     // Alleen tijdens het volgen van een pad. Staat de pathfinder te graven of te bouwen, dan
     // staat de bot expres stil en zou vooruit duwen zijn werk verstoren.
     if (!bot.pathfinder?.isMoving() || bot.pathfinder.isMining() || bot.pathfinder.isBuilding() || botState.isDrowning) {
+      forget();
+      return;
+    }
+
+    // Zet de lopende taak allowParkour uit, dan is dat een bewuste keuze (farmen, fokken,
+    // sorteren: landen na een sprong vertrapt akkerland). Die overrulen we niet.
+    if (bot.pathfinder.movements?.allowParkour === false) {
       forget();
       return;
     }
