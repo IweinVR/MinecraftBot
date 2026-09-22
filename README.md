@@ -64,13 +64,14 @@ Deze module beheert alles wat te maken heeft met gevaar, verdediging en overlevi
 * **Vechten (chat "vecht tegen mij"):** Er is geen `!`-commando voor; typ in de gewone chat "vecht tegen mij" en de bot triggert `fightPlayer`, pakt zijn beste wapen en start een duel via de `mineflayer-pvp` plugin.
 * **Slapen (`!bed`):** De bot zoekt het dichtstbijzijnde bed en stelt zijn spawnpoint in (werkt alleen 's nachts of bij onweer).
 * **Zelfmoord (`!die`):** De bot zoekt het dichtstbijzijnde monster, lava of vuur op om zichzelf te elimineren en terug te keren naar spawn.
-* **Automatisch:** De bot voert automatisch de 'MLG water bucket' truc uit bij diepe vallen, draait zich om naar spelers die hem slaan, en vlucht bij lage levenspunten.
+* **Automatisch:** De bot voert automatisch de 'MLG water bucket' truc uit bij diepe vallen, draait zich om naar spelers die hem slaan, verdedigt zich tegen monsters die hem aanvallen, en vlucht bij lage levenspunten.
+* **Zelfverdediging (`defendAgainst`):** Slaat een monster hem, dan slaat hij terug — zonder dat je daar een commando voor hoeft te geven. Hij pakt zijn beste wapen, meldt in de chat wat hem aanvalt, en vecht tot het beest dood is, wegvlucht (verder dan 16 blokken), tot hij onder de helft van zijn harten zakt, of tot de 30 seconden om zijn. Daarna is de gewone vluchtroutine weer aan de beurt. Tegen een **creeper, ghast, phantom, warden, wither, ender dragon, elder guardian of iron golem** vecht hij bewust niet terug: ernaartoe lopen is daar juist het probleem. Die lijst staat als `NO_FIGHT_MOBS` in `config.js`.
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Omgevingsschade-detectie:** De bot draait zich alleen om (`faceAttacker`) als de schade écht door een entiteit is aangericht. Hierdoor draait hij zich niet meer verward naar een willekeurige speler als hij toevallig zelf in de lava stapt.
 * **MLG Bucket Precisie:** Bij het opvangen van een val gebruikt de bot `findItemExact`. Hierdoor pakt hij 100% zeker een lege emmer of wateremmer, en plaatst hij niet per ongeluk een *lava_bucket* omdat de zoekopdracht deels overeenkwam.
 * **Wapen-Rangschikking:** De bot berekent dynamisch een wapenscore (`weaponScore`) inclusief koperen gereedschap. Omdat *mineflayer-pvp* altijd de volledige cooldown afwacht, kiest de bot bewust liever een bijl (hoge schade per klap) dan een zwaard.
-* **Anti-Griefing na Gevecht:** De PVP-plugin zet intern opties zoals blokken breken (`canDig`) aan. Na het gevecht forceert deze module de instellingen direct weer terug, zodat de bot je basis niet sloopt.
+* **Anti-Griefing na Gevecht:** De PVP-plugin zet intern opties zoals blokken breken (`canDig`) aan. Die wordt bij het opstarten al op `false` gezet (`bot.pvp.movements`), en na een gevecht zet de bot bovendien de Movements terug die de lopende taak nodig had — vecht hij midden op de akker, dan boert hij daarna gewoon verder zonder gewassen te slopen.
 * **Bed Validatie:** Omdat een bed uit twee blokken bestaat (hoofd en voet), voorkomt de bot vastlopers door niet blind op het blok te klikken, maar de robuuste `bot.sleep()` functie te gebruiken die rekening houdt met de dag/nacht-cyclus en de juiste bed-helft.
 
 **Stap-voor-stap Werking**

@@ -39,7 +39,7 @@ const botState = require('./state');
 const { Logger, setMovements, findNearestEntity, distanceToGround, enforceNoBlockPlacing } = require('./utils');
 const { restoreGoal } = require('./features/mining');
 const { handleCommand } = require('./features/commands');
-const { useWaterBucket, faceAttacker, fleeFromDanger } = require('./features/combat');
+const { useWaterBucket, faceAttacker, fleeFromDanger, defendAgainst } = require('./features/combat');
 const { handleChatReactions } = require('./features/chat');
 const { startDoorWatcher } = require('./watchers/doors');
 const { startDrownWatcher } = require('./watchers/safety');
@@ -120,6 +120,11 @@ async function createBot() {
       bot.pathfinder.tickTimeout = CONFIG.pathfinding.tickTimeout;
       bot.pathfinder.searchRadius = CONFIG.pathfinding.searchRadius;
       Logger.info(`Pathfinder: thinkTimeout=${bot.pathfinder.thinkTimeout}ms, searchRadius=${bot.pathfinder.searchRadius}`);
+
+      // mineflayer-pvp vecht met zijn eigen Movements, en die staan standaard op canDig=true:
+      // tijdens een gevecht zou de bot dus blokken slopen om bij zijn doel te komen. De rest
+      // van deze bot breekt nooit iets zonder opdracht, dus hier ook niet.
+      if (bot.pvp?.movements) bot.pvp.movements.canDig = false;
     } else {
       Logger.info('Bot gerespawned');
     }
@@ -152,6 +157,15 @@ async function createBot() {
     if (attackerPlayer?.entity) {
       botState.lastAttacker = attackerPlayer.username;
       faceAttacker(bot, attackerPlayer);
+    }
+
+    // Aangevallen door iets dat geen speler is? Dan verdedigt hij zich. defendAgainst() bewaakt
+    // zelf wanneer dat NIET mag: tegen een creeper of een warden, terwijl hij al vlucht of
+    // vecht, en onder de helft van zijn harten — dan is wegrennen beter, en dat staat hieronder.
+    // Let op de volgorde: defendAgainst zet botState.isFighting meteen (nog vóór zijn eerste
+    // await), zodat de vluchtcheck hieronder in dezelfde klap niet ook nog afgaat.
+    if (attackerEntity && !attackerPlayer) {
+      defendAgainst(bot, attackerEntity).catch(err => Logger.error('Verdedigen ging mis', err));
     }
 
     if (botState.isMining || botState.isFighting || botState.isSuiciding) return;

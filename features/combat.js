@@ -12,7 +12,7 @@
  */
 
 const { goals } = require('mineflayer-pathfinder');
-const { CONFIG, HOSTILE_MOBS } = require('../config');
+const { CONFIG, HOSTILE_MOBS, NO_FIGHT_MOBS } = require('../config');
 const botState = require('../state');
 const { Logger, findItem, findItemExact, findNearestBlock, findNearestEntity, setMovements } = require('../utils');
 const { restoreGoal } = require('./mining');
@@ -329,6 +329,122 @@ async function fightPlayer(bot, username) {
   }
 }
 
+/**
+ * Terugvechten tegen wat de bot aanvalt.
+ *
+ * Verschil met fightPlayer(): dit is geen commando maar een reactie. Geen chat-ceremonie,
+ * geen "kom dichterbij", een veel kortere tijdslimiet, en hij stopt uit zichzelf zodra het
+ * misgaat — dan neemt de vluchtroutine in Index.js het over bij de volgende klap.
+ *
+ * Wat hier niet vergeten mag worden: mineflayer-pvp zet tijdens attack() zijn eigen Movements
+ * op de pathfinder, compleet met canDig. Word je tijdens het boeren aangevallen, dan zou de
+ * bot na het gevecht met die instelling verder lopen en alsnog gewassen slopen om ergens te
+ * komen. Daarom worden de Movements van de lopende taak bewaard en achteraf teruggezet.
+ */
+async function defendAgainst(bot, aanvaller) {
+  if (botState.isFighting || botState.isFleeing || botState.isSuiciding) return;
+  if (!aanvaller?.isValid || aanvaller === bot.entity) return;
+  if (aanvaller.type === 'player') return;   // spelers gaan via !vecht, niet vanzelf
+
+  const naam = aanvaller.name ?? 'monster';
+  if (NO_FIGHT_MOBS.some(mob => naam.includes(mob))) {
+    Logger.info(`Aangevallen door ${naam}, maar daar vecht de bot niet tegen terug`);
+    return;
+  }
+  // Bijna dood is geen moment om helden te spelen; de vluchtcheck in Index.js pakt het op.
+  if (bot.health <= CONFIG.health.maxHealth / 2) return;
+
+  botState.isFighting = true;
+  botState.stopFighting = false;
+
+  const doelId = aanvaller.id;
+  const taakMovements = bot.pathfinder.movements;
+
+  let cleanedUp = false;
+  let stopWatcher = null;
+  let fightTimer = null;
+  let onGone = null;
+  let onDeath = null;
+  let onStopped = null;
+  let doelDood = false;
+
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    clearInterval(stopWatcher);
+    clearTimeout(fightTimer);
+    if (onGone) bot.removeListener('entityGone', onGone);
+    if (onDeath) bot.removeListener('death', onDeath);
+    if (onStopped) bot.removeListener('stoppedAttacking', onStopped);
+    botState.isFighting = false;
+  };
+
+  try {
+    // Midden in een graafactie blijven hakken terwijl er iets op je inslaat heeft geen zin.
+    // De mining-lus vangt een mislukte dig gewoon op (safeDig geeft dan false terug).
+    try { bot.stopDigging(); } catch (err) { /* was niet aan het graven */ }
+
+    await equipBestWeapon(bot);
+    Logger.info(`Verdedigt zich tegen ${naam} (${bot.health.toFixed(1)} HP)`);
+    bot.chat(`Een ${naam} valt me aan!`);
+
+    const finished = new Promise((resolve) => {
+      // Listener eerst registreren, pas daarna aanvallen: pvp.attack() begint met een interne
+      // stop() die 'stoppedAttacking' kan uitzenden, en die zou anders gemist worden.
+      onStopped = () => resolve();
+      bot.once('stoppedAttacking', onStopped);
+
+      onGone = (weg) => { if (weg.id === doelId) doelDood = true; };
+      bot.on('entityGone', onGone);
+
+      onDeath = () => {
+        // pvp stopt zichzelf niet als de AANVALLER sterft; zonder forceStop() komt
+        // 'stoppedAttacking' nooit en blijft deze promise hangen.
+        bot.pvp.forceStop();
+        resolve();
+      };
+      bot.once('death', onDeath);
+
+      stopWatcher = setInterval(() => {
+        const teZwak = bot.health <= CONFIG.health.maxHealth / 2;
+        const gevlucht = aanvaller.isValid
+          && bot.entity.position.distanceTo(aanvaller.position) > CONFIG.combat.defendMaxDistance;
+
+        if (botState.stopFighting || botState.isFleeing || teZwak || gevlucht) {
+          if (teZwak) Logger.warn(`Stopt met vechten op ${bot.health.toFixed(1)} HP`);
+          bot.pvp.forceStop();
+          // forceStop() zendt niets uit als er al geen target meer is; dan zouden we
+          // hier eeuwig blijven wachten.
+          if (!bot.pvp.target) resolve();
+        }
+      }, 300);
+
+      fightTimer = setTimeout(() => {
+        Logger.warn(`Gevecht tegen ${naam} duurt te lang, bot kapt ermee`);
+        bot.pvp.forceStop();
+        resolve();
+      }, CONFIG.combat.defendTimeout);
+    });
+
+    Promise.resolve(bot.pvp.attack(aanvaller))
+      .catch(err => Logger.debug(`pvp.attack error: ${err.message}`));
+    await finished;
+
+    if (doelDood) {
+      Logger.info(`${naam} is verslagen`);
+      bot.chat(`Die ${naam} is er geweest.`);
+    }
+  } catch (err) {
+    Logger.error('Verdedigen ging mis', err);
+  } finally {
+    cleanup();
+    // Terug naar de instellingen van de taak die liep (boeren: niets slopen). Was er niets,
+    // dan de veilige standaard.
+    if (taakMovements) bot.pathfinder.setMovements(taakMovements);
+    else setMovements(bot, { canDig: false, canPlace: false, allowSprinting: true });
+  }
+}
+
 async function killBot(bot) {
   try {
     botState.isSuiciding = true;   // onderdrukt het vluchtgedrag, anders rent hij weg van de lava
@@ -414,4 +530,4 @@ async function walkInto(bot, pos, label) {
   }
 }
 
-module.exports = { useWaterBucket, setBedSpawn, faceAttacker, fleeFromDanger, fightPlayer, killBot };
+module.exports = { useWaterBucket, setBedSpawn, faceAttacker, fleeFromDanger, fightPlayer, defendAgainst, killBot };

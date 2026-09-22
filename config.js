@@ -53,6 +53,12 @@ const SIDE_DIRECTIONS = [
 
 const HOSTILE_MOBS = ['zombie', 'skeleton', 'spider', 'enderman', 'husk', 'drowned', 'wither_skeleton'];
 
+// Waar de bot NIET tegen terugvecht als hij aangevallen wordt, hoe hard hij ook geraakt wordt.
+// Een creeper ontploft juist in zijn gezicht zodra hij ernaartoe loopt, ghasts en phantoms
+// vliegen en zijn met een zwaard toch niet te raken, tegen deze bazen verliest hij sowieso,
+// en een iron golem hoort bij het dorp — die sla je niet terug.
+const NO_FIGHT_MOBS = ['creeper', 'ghast', 'phantom', 'warden', 'wither', 'ender_dragon', 'elder_guardian', 'iron_golem'];
+
 // Alle kistvarianten waar de bot z'n buit in kwijt kan. findNearestBlock() zocht alleen op
 // 'chest' en liep dus langs de koperen kisten heen.
 const CHEST_BLOCKS = [
@@ -99,6 +105,8 @@ const CONFIG = {
   },
   combat: {
     fightTimeout: 120000,
+    defendTimeout: 30000,      // hoe lang hij hooguit achter één monster aan blijft vechten
+    defendMaxDistance: 16,     // vlucht het monster verder weg, dan laat hij het lopen
   },
   farming: {
     scanRadius: 32,          // 2 chunks
@@ -220,4 +228,4 @@ const CONFIG = {
   },
 };
 
-module.exports = { CONFIG, FOOD_ITEMS, KEEP_ITEMS, CHEST_BLOCKS, DIRECTIONS, SIDE_DIRECTIONS, HOSTILE_MOBS };
+module.exports = { CONFIG, FOOD_ITEMS, KEEP_ITEMS, CHEST_BLOCKS, DIRECTIONS, SIDE_DIRECTIONS, HOSTILE_MOBS, NO_FIGHT_MOBS };
