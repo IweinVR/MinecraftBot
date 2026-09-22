@@ -318,10 +318,10 @@ function handleCommand(bot, username, message) {
   }
 
   // !maak <aantal> <item>  en  !maak <item>
-  match = message.match(/^!maak (?:(d+) )?(.+)$/i);
+  match = message.match(/^!maak (?:(\d+) )?(.+)$/i);
   if (match) {
     const aantal = match[1] ? Number(match[1]) : 1;
-    const naam = match[2].trim().toLowerCase().replace(/s+/g, '_');
+    const naam = match[2].trim().toLowerCase().replace(/\s+/g, '_');
     craftItem(bot, naam, aantal).catch(err => {
       Logger.error('Smidsfout', err);
       bot.chat('Er ging iets mis met maken.');
@@ -330,7 +330,7 @@ function handleCommand(bot, username, message) {
   }
 
   // !haal <aantal> <item>  en  !haal <item>  (standaard een hele stapel)
-  match = message.match(/^!haal (?:(d+) )?(.+)$/i);
+  match = message.match(/^!haal (?:(\d+) )?(.+)$/i);
   if (match) {
     const aantal = match[1] ? Number(match[1]) : null;
     fetchItem(bot, username, match[2].trim(), aantal).catch(err => {
@@ -348,7 +348,7 @@ function handleCommand(bot, username, message) {
   }
 
   // !vis <aantal worpen>
-  match = message.match(/^!vis (d+)$/);
+  match = message.match(/^!vis (\d+)$/);
   if (match) {
     fishForItems(bot, Number(match[1])).catch(err => {
       Logger.error('Visfout', err);
@@ -359,7 +359,7 @@ function handleCommand(bot, username, message) {
 
   // !trade kist x y z hal x y z [kluis x y z]
   // Alle drie de plekken los opgeven, want een handelshal staat zelden naast je akker.
-  match = message.match(/^!trade kist (-?d+) (-?d+) (-?d+) hal (-?d+) (-?d+) (-?d+)(?: kluis (-?d+) (-?d+) (-?d+))?$/);
+  match = message.match(/^!trade kist (-?\d+) (-?\d+) (-?\d+) hal (-?\d+) (-?\d+) (-?\d+)(?: kluis (-?\d+) (-?\d+) (-?\d+))?$/);
   if (match) {
     const g = match.slice(1).map(v => (v === undefined ? undefined : Number(v)));
     const opties = {
