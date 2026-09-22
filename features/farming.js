@@ -374,27 +374,90 @@ function inventoryFull(bot) {
   return bot.inventory.emptySlotCount() <= FARM.minFreeSlots;
 }
 
-async function sweepDrops(bot, shouldStop) {
-  const drops = Object.values(bot.entities)
+/** Alle item-entities binnen een straal, dichtstbij eerst. */
+function nearbyDrops(bot, radius) {
+  return Object.values(bot.entities)
     .filter(e => e && e.name === 'item' && e.position)
     .map(e => ({ entity: e, distance: bot.entity.position.distanceTo(e.position) }))
-    .filter(d => d.distance <= FARM.dropSweepRadius)
+    .filter(d => d.distance <= radius)
     .sort((a, b) => a.distance - b.distance);
+}
 
-  for (const { entity } of drops) {
-    if (shouldStop() || inventoryFull(bot)) return;
-    if (!entity.isValid) continue;
-    const pos = entity.position;
+/**
+ * Naar een drop lopen tot hij opgeraapt is. Geeft false als de bot er niet bij kon.
+ *
+ * GoalNear rekent in blokken, dus met straal 1 kan de bot diagonaal nog ruim 1,4 blok van het
+ * item vandaan stil komen te staan — net buiten de oprapradius van Minecraft, waarna het item
+ * gewoon bleef liggen. Daarom wordt er na aankomst kort gewacht tot de server het oprapen
+ * doorgeeft, en ligt het er dan nog, dan schuift de bot er alsnog bovenop (straal 0).
+ */
+async function collectDrop(bot, entity) {
+  const pos = entity.position;
+
+  for (const range of [1, 0]) {
     try {
       await withTimeout(
-        bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 1)),
+        bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, range)),
         FARM.dropSweepTimeout,
         'drop oprapen'
       );
     } catch (err) {
       Logger.debug(`Drop oprapen overgeslagen: ${err.message}`);
+      return !entity.isValid;
+    }
+    await new Promise(resolve => setTimeout(resolve, FARM.dropPickupDelay));
+    if (!entity.isValid) return true;
+  }
+
+  return !entity.isValid;
+}
+
+async function sweepDrops(bot, shouldStop, radius = FARM.dropSweepRadius) {
+  let collected = 0;
+
+  for (const { entity } of nearbyDrops(bot, radius)) {
+    if (shouldStop() || inventoryFull(bot)) break;
+    if (!entity.isValid) continue;
+    if (await collectDrop(bot, entity)) collected++;
+  }
+
+  return collected;
+}
+
+/**
+ * Slotronde over de hele akker.
+ *
+ * sweepDrops() kijkt met opzet maar FARM.dropSweepRadius blokken om de bot heen: tussen het
+ * oogsten door moet oprapen goedkoop blijven. Maar er wordt tot FARM.scanRadius blokken ver
+ * geoogst, dus alles wat tien oogsten eerder aan de andere kant van het veld viel, lag buiten
+ * die straal en bleef daar gewoon liggen — precies de items die na het boeren achterbleven.
+ *
+ * Deze ronde loopt daarom aan het eind het hele veld nog een keer af, en herhaalt dat: onderweg
+ * naar de ene drop komen er telkens nieuwe in beeld. Wat onbereikbaar blijkt wordt onthouden,
+ * zodat de bot niet elke ronde opnieuw naar hetzelfde onbereikbare item loopt.
+ */
+async function sweepFieldDrops(bot, shouldStop) {
+  const unreachable = new Set();
+  let collected = 0;
+
+  for (let pass = 1; pass <= FARM.finalSweepPasses; pass++) {
+    if (shouldStop() || inventoryFull(bot)) break;
+
+    const drops = nearbyDrops(bot, FARM.finalSweepRadius)
+      .filter(d => d.entity.isValid && !unreachable.has(d.entity.id));
+    if (drops.length === 0) break;
+
+    Logger.debug(`Slotronde ${pass}: nog ${drops.length} drops binnen ${FARM.finalSweepRadius} blokken`);
+    for (const { entity } of drops) {
+      if (shouldStop() || inventoryFull(bot)) break;
+      if (!entity.isValid) continue;
+      if (await collectDrop(bot, entity)) collected++;
+      else unreachable.add(entity.id);
     }
   }
+
+  if (collected > 0) Logger.info(`Slotronde: ${collected} drops alsnog opgeraapt`);
+  return collected;
 }
 
 /** Alles uit YIELD_ITEMS mag weg, minus 1 stack per zaadsoort. */
@@ -586,6 +649,8 @@ async function harvestPass(bot, tasks, shouldStop, stats) {
  *   4. zit de inventaris vol, dan pauzeert de oogst
  *   5. breng de opbrengst naar de dichtstbijzijnde speler (1 stack zaad blijft achter)
  *      en begin daarna opnieuw bij 1
+ *   6. is er niets meer te oogsten, loop dan nog een slotronde over het veld om alles op te
+ *      rapen wat buiten de kleine sweep-straal is blijven liggen
  *
  * @param {import('mineflayer').Bot} bot
  * @returns {Promise<{harvested:number, replanted:number, skipped:number, rounds:number, perCrop:object}>}
@@ -663,6 +728,11 @@ async function farmCrops(bot) {
       deliverAtEnd = true;
       break;
     }
+
+    // Slotronde: alles oprapen wat verspreid over de akker is blijven liggen. Dit moet hier,
+    // vóór het voeren en leveren: daarna staat de bot bij de dieren of bij de speler en is
+    // het veld allang buiten bereik.
+    if (!shouldStop()) await sweepFieldDrops(bot, shouldStop);
 
     // Stap 6: eenmalig de dieren voeren. Dit gebeurt na het oogsten en vóór de levering,
     // zodat de bot het graan dat hij net geoogst heeft nog in zijn inventaris heeft.

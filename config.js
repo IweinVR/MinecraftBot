@@ -112,6 +112,9 @@ const CONFIG = {
     dropSweepRadius: 6,
     dropSweepInterval: 10,   // om de hoeveel oogsten drops oprapen
     dropSweepTimeout: 4000,
+    dropPickupDelay: 250,    // wachten tot de server het oprapen doorgeeft
+    finalSweepRadius: 32,    // slotronde: net zo groot als het scangebied
+    finalSweepPasses: 3,     // en die ronde mag zichzelf zo vaak herhalen
     approachTimeout: 15000,
     deliverTimeout: 60000,
     maxRounds: 20,           // harde bovengrens op het aantal scan-rondes

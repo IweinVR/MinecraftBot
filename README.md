@@ -144,7 +144,8 @@ Deze module transformeert de bot in een volautomatische boer. Het systeem is ext
 2. **Taakbepaling (`buildTasks`):** Hij zet de blokken om in specifieke taken. Voor pompoenen controleert hij of er wel echt een stengel naast staat. Voor suikerriet pakt hij het tweede blok van onderen, en voor bessen gebruikt hij een rechtsklik.
 3. **Oogsten & Opruimen:** Hij breekt de blokken, zuigt de gedropte items op en plant direct nieuw zaad terug als het gewas dat vereist (`CATEGORY.REPLANT`).
 4. **Inventaris-Pauze:** Mocht de inventaris van de bot halverwege de oogst vol raken, pauzeert hij even, loopt hij naar de speler om de opbrengst (`toss`) af te geven, en gaat hij weer vrolijk verder waar hij gebleven was.
-5. **Eindfase:** Als alle velden leeg zijn, gaat de bot met het verse voedsel de dieren fokken en brengt hij tot slot alle resterende surplus-opbrengst netjes bij je langs.
+5. **Eindfase:** Als alle velden leeg zijn, loopt de bot eerst nog een slotronde over de akker om alles op te rapen wat er tijdens het oogsten is blijven liggen, gaat hij daarna met het verse voedsel de dieren fokken, en brengt hij tot slot alle resterende surplus-opbrengst netjes bij je langs.
+6. **Slotronde (`sweepFieldDrops`):** Tussendoor raapt de bot alleen op wat binnen 6 blokken ligt — dat moet goedkoop blijven. Maar er wordt tot 32 blokken ver geoogst, dus wat tien oogsten eerder aan de andere kant van het veld viel, bleef daar liggen. De slotronde gaat daarom met de volle scanstraal nog een paar keer over het veld tot er niets meer bijkomt, en onthoudt wat onbereikbaar blijkt zodat hij daar niet telkens opnieuw heen loopt.
 
 ### 🎣 Vissen (`features/fishing.js`)
 
@@ -294,6 +295,7 @@ Mineflayer-pathfinder beslist per tick of hij mag springen door de sprong eerst 
 * Staat de bot meer dan 0,6 seconde stil terwijl hij een pad volgt, dan kijkt de watcher of er in de looprichting een blok ligt waar hij bovenop past (een blok op voethoogte, met twee blokken lucht erboven en boven de bot zelf).
 * Is dat zo, dan drukt de watcher zelf `forward` + `jump` in en houdt dat 0,7 seconde vast — lang genoeg voor een hele sprongboog. Zou hij eerder loslaten, dan zet de pathfinder `forward` meteen weer uit en valt de bot halverwege terug.
 * Is er niets om overheen te springen (een muur van twee hoog, een dichte deur, een mob), dan doet de watcher niets: daar helpt springen niet tegen.
+* Taken die bewust zonder parkour lopen (boeren, fokken, sorteren) laat de watcher met rust, en op akkerland of een schildpadei landt hij nooit: een sprong erop maakt er gewone aarde van of trapt het ei kapot.
 * Na vijf mislukte pogingen op dezelfde plek volgt er een pauze van vijf seconden, zodat de bot niet eindeloos staat te stuiteren.
 
 ### 👋 Welkomstbericht (`watchers/greeting.js`)
