@@ -121,7 +121,9 @@ function columnBottom(bot, pos, members) {
  *   - INTERACT -> rechtsklikken op het gevonden blok
  *   - VERTICAL -> niet het gevonden blok, maar het tweede blok van onderen
  */
-function buildTasks(bot, positions) {
+// `only` (optioneel) is een lijst bloknamen: dan wordt alles wat daar niet bij hoort overgeslagen,
+// voor "!farm tarwe". Leeg of weggelaten = alle gewassen.
+function buildTasks(bot, positions, only = null) {
   const tasks = [];
   const seen = new Set();
   const keyOf = (p) => `${p.x},${p.y},${p.z}`;
@@ -130,6 +132,7 @@ function buildTasks(bot, positions) {
     const block = bot.blockAt(pos);
     if (!isHarvestable(bot, block)) continue;
     const def = CROPS_BY_BLOCK[block.name];
+    if (only && !only.includes(block.name)) continue;
 
     let target = pos;
     let action = 'dig';
@@ -567,6 +570,9 @@ async function harvestPass(bot, tasks, shouldStop, stats) {
   let resupplyGeprobeerd = false;
   // Welk gewas hij nu onder handen heeft; buildTasks levert de taken per gewas gegroepeerd aan.
   let huidigGewas = null;
+  // Met maar één gewas in de ronde (of na "!farm tarwe") is die melding overbodig: dan heeft
+  // farmCrops al gezegd waar hij mee bezig gaat.
+  const meerdereGewassen = new Set(tasks.map(t => t.def.block)).size > 1;
 
   for (const task of tasks) {
     if (shouldStop()) { result.stopped = true; return result; }
@@ -634,7 +640,7 @@ async function harvestPass(bot, tasks, shouldStop, stats) {
 
     // Eén melding per gewas, niet per blok: zo is in de chat te volgen dat hij eerst de
     // tarwe afmaakt en daarna pas aan de wortels begint.
-    if (task.def.block !== huidigGewas) {
+    if (meerdereGewassen && task.def.block !== huidigGewas) {
       huidigGewas = task.def.block;
       Logger.info(`Begint aan ${huidigGewas}`);
       bot.chat(`Ik doe eerst alle ${huidigGewas}.`);
@@ -683,9 +689,11 @@ async function harvestPass(bot, tasks, shouldStop, stats) {
  *      rapen wat buiten de kleine sweep-straal is blijven liggen
  *
  * @param {import('mineflayer').Bot} bot
+ * @param {{only?: string[], label?: string}} [opties] `only` beperkt de ronde tot die bloknamen
+ *        ("!farm tarwe"), `label` is hoe de bot dat gewas in de chat noemt.
  * @returns {Promise<{harvested:number, replanted:number, skipped:number, rounds:number, perCrop:object}>}
  */
-async function farmCrops(bot) {
+async function farmCrops(bot, { only = null, label = null } = {}) {
   if (botState.isFarming) {
     bot.chat('Ik ben al aan het boeren!');
     return { harvested: 0, replanted: 0, skipped: 0, rounds: 0, perCrop: {} };
@@ -705,8 +713,8 @@ async function farmCrops(bot) {
 
   farmMovements(bot);
 
-  Logger.info(`FARM START: scanradius ${FARM.scanRadius}, ${CROP_LIST.length} gewassoorten in ${Object.keys(CATEGORY).length} categorieën`);
-  bot.chat('Ik ga boeren!');
+  Logger.info(`FARM START: scanradius ${FARM.scanRadius}, ${only ? `alleen ${only.join('/')}` : `${CROP_LIST.length} gewassoorten in ${Object.keys(CATEGORY).length} categorieën`}`);
+  bot.chat(only ? `Ik ga alleen ${label ?? only[0]} oogsten!` : 'Ik ga boeren!');
 
   let barrenRounds = 0;
   // De levering is uit de lus gehaald: het fokvoer (graan, wortels) zit in dezelfde
@@ -719,11 +727,15 @@ async function farmCrops(bot) {
       totals.rounds = round;
 
       // Stap 1
-      const tasks = buildTasks(bot, scanCropBlocks(bot));
+      const tasks = buildTasks(bot, scanCropBlocks(bot), only);
       Logger.info(`Ronde ${round}: ${tasks.length} oogstbare doelen`);
 
       if (tasks.length === 0) {
-        if (round === 1) bot.chat('Ik zie geen oogstbare gewassen in de buurt.');
+        if (round === 1) {
+          bot.chat(only
+            ? `Ik zie hier geen rijpe ${label ?? only[0]} staan.`
+            : 'Ik zie geen oogstbare gewassen in de buurt.');
+        }
         break;
       }
 

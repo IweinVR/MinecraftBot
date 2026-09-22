@@ -114,6 +114,57 @@ const CROP_LIST = [
     tool: 'axe', ripe: ripeAtMaxAge },
 ];
 
+
+// Gewassen zoals je ze in de chat aanwijst: "!farm tarwe". Elk item heeft de bloknamen die bij
+// het gewas horen (kelp en cave_vines hebben er twee: het topblok en de stengel eronder) plus de
+// woorden waarmee je het kunt noemen. De eerste naam is wat de bot zelf zegt.
+//
+// Bewust hier en niet in commands.js: alles wat over gewassen gaat hoort in dit bestand, dus een
+// gewas toevoegen is één regel op één plek.
+const CROP_GROUPS = [
+  { blocks: ['wheat'], names: ['tarwe', 'graan', 'wheat'] },
+  { blocks: ['carrots'], names: ['wortels', 'wortel', 'carrot', 'carrots'] },
+  { blocks: ['potatoes'], names: ['aardappels', 'aardappel', 'aardappelen', 'potato', 'potatoes'] },
+  { blocks: ['beetroots'], names: ['bieten', 'biet', 'beetroot', 'beetroots'] },
+  { blocks: ['nether_wart'], names: ['netherwart', 'nether_wart', 'wart'] },
+  { blocks: ['torchflower'], names: ['fakkelbloem', 'torchflower'] },
+  { blocks: ['pitcher_plant', 'pitcher_crop'], names: ['bekerplant', 'pitcher', 'pitcher_plant'] },
+  { blocks: ['cocoa'], names: ['cacao', 'cocoa', 'cacaobonen'] },
+  { blocks: ['melon'], names: ['meloen', 'melon', 'meloenen'] },
+  { blocks: ['pumpkin'], names: ['pompoen', 'pumpkin', 'pompoenen'] },
+  { blocks: ['sweet_berry_bush'], names: ['bessen', 'bes', 'zoete_bessen', 'sweet_berry_bush'] },
+  { blocks: ['cave_vines', 'cave_vines_plant'], names: ['gloeibessen', 'glow_berries', 'cave_vines'] },
+  { blocks: ['sugar_cane'], names: ['suikerriet', 'riet', 'sugar_cane'] },
+  { blocks: ['cactus'], names: ['cactus', 'cactussen'] },
+  { blocks: ['bamboo'], names: ['bamboe', 'bamboo'] },
+  { blocks: ['kelp', 'kelp_plant'], names: ['zeewier', 'kelp'] },
+  { blocks: ['sea_pickle'], names: ['zeekomkommer', 'sea_pickle'] },
+  { blocks: ['brown_mushroom'], names: ['bruine_paddenstoel', 'brown_mushroom'] },
+  { blocks: ['red_mushroom'], names: ['rode_paddenstoel', 'red_mushroom'] },
+  { blocks: ['crimson_fungus'], names: ['crimson_fungus', 'crimson'] },
+  { blocks: ['warped_fungus'], names: ['warped_fungus', 'warped'] },
+  { blocks: ['chorus_flower'], names: ['chorus', 'chorusbloem', 'chorus_flower'] },
+];
+
+// Spaties en streepjes worden underscores, zodat "sugar cane", "sugar-cane" en "sugar_cane"
+// allemaal hetzelfde gewas aanwijzen.
+const normalizeCropName = (name) => String(name).trim().toLowerCase().replace(/[\s-]+/g, '_');
+
+/**
+ * Zoekt het gewas dat bij een naam uit de chat hoort.
+ * @returns {{blocks: string[], label: string}|null} null als er geen gewas op die naam luistert.
+ */
+function findCropGroup(name) {
+  const clean = normalizeCropName(name);
+  const group = CROP_GROUPS.find(g =>
+    g.names.some(n => normalizeCropName(n) === clean) || g.blocks.some(b => b === clean)
+  );
+  return group ? { blocks: group.blocks, label: group.names[0] } : null;
+}
+
+/** De namen die de bot noemt als hij een gewas niet herkent. */
+const CROP_LABELS = CROP_GROUPS.map(g => g.names[0]);
+
 const CROPS_BY_BLOCK = Object.fromEntries(CROP_LIST.map(c => [c.block, c]));
 
 // Blokken die de bot onder GEEN ENKELE omstandigheid mag breken. Dit is de harde grens
@@ -166,5 +217,8 @@ module.exports = {
   NEVER_BREAK,
   PROTECTED_BLOCKS,
   YIELD_ITEMS,
+  CROP_GROUPS,
+  CROP_LABELS,
+  findCropGroup,
   SEED_ITEMS,
 };

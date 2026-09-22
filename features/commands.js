@@ -24,6 +24,7 @@ const { mineTunnel, mineCorridor } = require('./mining');
 
 const { setBedSpawn, killBot } = require('./combat');
 const { farmCrops, stopFarming } = require('./farming');
+const { findCropGroup, CROP_LABELS } = require('../data/crops');
 const { breedOnce } = require('./breeding');
 const { sortItems, stopSorting } = require('./sorting');
 const { tradeCrops, stopTrading } = require('./trading');
@@ -244,7 +245,8 @@ function handleCommand(bot, username, message) {
       bot.chat('Overig: !stop | !pos | !bed | !die | !stopmine | !collect blok aantal');
       bot.chat('Tunnel: !tunnel naar x y z | !tunnel naar mij | !tunnel noord 20');
       bot.chat('  grootte: zet "breedte hoogte" achter ELKE tunnelvorm, bv. !tunnel noord 20 3 3 (standaard is 1 breed, 2 hoog)');
-      bot.chat('Boeren: !farm (graan, meloen/pompoen, bessen, riet/bamboe, fungi) | !stopfarm');
+      bot.chat('Boeren: !farm (alles: graan, meloen/pompoen, bessen, riet/bamboe, fungi) | !stopfarm');
+      bot.chat('  één gewas: !farm tarwe | !farm wortels | !farm pompoen | !farm suikerriet (hij maakt dat gewas eerst helemaal af)');
       bot.chat('Fokken: !breed (voert koeien, schapen, varkens, kippen... met het juiste voer)');
       bot.chat('Sorteren: !sort | !sort x y z (invoerkist) | !stopsort');
       bot.chat('Handelen: !trade | !trade kist x y z hal x y z [kluis x y z] | !stoptrade');
@@ -336,6 +338,24 @@ function handleCommand(bot, username, message) {
     fetchItem(bot, username, match[2].trim(), aantal).catch(err => {
       Logger.error('Koeriersfout', err);
       bot.chat('Er ging iets mis met halen.');
+    });
+    return;
+  }
+
+  // !farm <gewas> -> alleen dat ene gewas oogsten, bv. "!farm tarwe" of "!farm sugar cane".
+  match = message.match(/^!farm (.+)$/i);
+  if (match) {
+    const arg = match[1].trim();
+    // "!farm alles" is gewoon de gewone ronde; blocks=null betekent geen filter.
+    const gewas = /^(alles|all)$/i.test(arg) ? { blocks: null, label: null } : findCropGroup(arg);
+    if (!gewas) {
+      bot.chat(`Ik ken "${arg}" niet als gewas.`);
+      bot.chat(`Wel: ${CROP_LABELS.slice(0, 11).join(', ')} (en nog een paar).`);
+      return;
+    }
+    farmCrops(bot, { only: gewas.blocks, label: gewas.label }).catch(err => {
+      Logger.error('Farmfout', err);
+      bot.chat('Er ging iets mis met het boeren.');
     });
     return;
   }

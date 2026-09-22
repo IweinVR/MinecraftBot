@@ -130,6 +130,7 @@ Deze module transformeert de bot in een volautomatische boer. Het systeem is ext
 
 **Hoe te gebruiken in-game**
 * **Starten:** Typ `!farm` in de chat. De bot scant de omgeving, oogst alles wat rijp is, plant terug, voert de dieren en komt de opbrengst bij je brengen.
+* **Eén gewas:** Typ `!farm <gewas>`, bijvoorbeeld `!farm tarwe`, `!farm wortels`, `!farm pompoen` of `!farm suikerriet`. De bot oogst dan alleen dat gewas en laat de rest staan. Nederlandse én Engelse namen werken, met spaties of underscores (`!farm sugar cane` = `!farm sugar_cane` = `!farm suikerriet`), en `!farm alles` is hetzelfde als een kaal `!farm`. Kent hij de naam niet, dan somt hij in de chat op wat hij wél kent. De namenlijst staat bij de gewassen zelf, in `CROP_GROUPS` in `data/crops.js`.
 * **Stoppen:** Typ `!stopfarm` (of `!stop`) om de landbouwcyclus direct af te breken.
 
 **Slimme Beveiligingen (Fail-safes)**
