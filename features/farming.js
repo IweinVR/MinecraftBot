@@ -171,8 +171,27 @@ function buildTasks(bot, positions) {
     tasks.push({ pos: target, def, action, expect, cropPos: pos });
   }
 
+  // Per gewas afwerken in plaats van kriskras door elkaar.
+  //
+  // Puur op afstand sorteren leverde een ronde op waarin de bot tussen tarwe, wortels en
+  // pompoenen heen en weer stuiterde: het dichtstbijzijnde blok is telkens van een ander
+  // gewas, dus hij liep steeds een stukje terug en had aan het eind overal halve akkers.
+  // Nu kiest hij het gewas waar hij het dichtst bij staat, maakt dat helemaal af, en pakt
+  // dan pas het volgende gewas — binnen een gewas nog steeds van dichtbij naar ver.
   const botPos = bot.entity.position;
-  return tasks.sort((a, b) => botPos.distanceTo(a.pos) - botPos.distanceTo(b.pos));
+  const distance = (task) => botPos.distanceTo(task.pos);
+
+  const perCrop = new Map();
+  for (const task of tasks) {
+    const group = perCrop.get(task.def.block) ?? [];
+    group.push(task);
+    perCrop.set(task.def.block, group);
+  }
+
+  return [...perCrop.values()]
+    .map(group => group.sort((a, b) => distance(a) - distance(b)))
+    .sort((a, b) => distance(a[0]) - distance(b[0]))
+    .flat();
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +565,8 @@ async function harvestPass(bot, tasks, shouldStop, stats) {
   // Hoogstens één keer per ronde nieuw gereedschap gaan maken; zie de plek waar hij op 'none'
   // uitkomt, verderop in deze lus.
   let resupplyGeprobeerd = false;
+  // Welk gewas hij nu onder handen heeft; buildTasks levert de taken per gewas gegroepeerd aan.
+  let huidigGewas = null;
 
   for (const task of tasks) {
     if (shouldStop()) { result.stopped = true; return result; }
@@ -610,6 +631,15 @@ async function harvestPass(bot, tasks, shouldStop, stats) {
       result.skipped++;
       continue;
     }
+
+    // Eén melding per gewas, niet per blok: zo is in de chat te volgen dat hij eerst de
+    // tarwe afmaakt en daarna pas aan de wortels begint.
+    if (task.def.block !== huidigGewas) {
+      huidigGewas = task.def.block;
+      Logger.info(`Begint aan ${huidigGewas}`);
+      bot.chat(`Ik doe eerst alle ${huidigGewas}.`);
+    }
+
     result.harvested++;
     stats[task.def.block] = (stats[task.def.block] ?? 0) + 1;
 

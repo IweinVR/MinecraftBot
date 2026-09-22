@@ -138,6 +138,7 @@ Deze module transformeert de bot in een volautomatische boer. Het systeem is ext
 * **Logische Volgorde (Fokken vóór Leveren):** De bot voert altijd eerst het `breedAnimals` script uit vóórdat hij zijn inventaris bij de speler komt dumpen. Doe je dit andersom, dan staat de bot met lege handen bij de koeien omdat hij al het graan net aan jou heeft gegeven.
 * **Dynamische Leeftijdscheck (`maxAgeOf`):** De bot leest de maximale leeftijd van een gewas uit het Minecraft-register in plaats van uit hardgecodeerde getallen. Hierdoor snapt de bot feilloos dat kelp (25), bietjes (3) en graan (7) allemaal andere momenten van rijpheid hebben.
 * **Anti-Vertrappen (`farmMovements`):** Parkour en sprint-springen worden uitgezet zodat de bot je *farmland* (geploegde aarde) niet per ongeluk kapot springt tijdens het oogsten.
+* **Eén gewas tegelijk (`buildTasks`):** De taken worden per gewas gegroepeerd. De bot kiest het gewas waar hij het dichtst bij staat, maakt dat eerst helemaal af, en begint pas daarna aan het volgende — binnen een gewas nog steeds van dichtbij naar ver. Sorteerde hij puur op afstand, dan was het dichtstbijzijnde blok telkens van een ander gewas en stuiterde hij tussen tarwe, wortels en pompoenen heen en weer met overal halve akkers als resultaat. Bij het eerste blok van een nieuw gewas zegt hij in de chat waar hij mee bezig gaat.
 
 **Stap-voor-stap Werking**
 1. **Scannen (`scanCropBlocks`):** De bot zoekt in een straal om zich heen naar alle blokken die als 'oogstbaar' staan gemarkeerd in de crops-data.
