@@ -114,6 +114,63 @@ function columnBottom(bot, pos, members) {
 }
 
 /**
+ * De taken van één gewas op rijen zetten, zodat de bot een akker afloopt zoals een boer dat
+ * doet: een rij uit, aan het eind een rij opschuiven, en terug.
+ *
+ * Op afstand sorteren geeft binnen een akker een slingerpad — het dichtstbijzijnde blok ligt
+ * net zo vaak een rij verderop als naast hem — en dat is precies het heen-en-weer geloop dat
+ * dit moet vervangen.
+ *
+ * De rijen lopen langs de langste kant van het veld, anders krijg je bij een akker van 9x3
+ * negen rijtjes van drie in plaats van drie rijen van negen. Hij begint aan de kant waar hij
+ * toch al staat, en elke volgende rij wordt omgedraaid, zodat het eind van de ene rij naast
+ * het begin van de volgende ligt.
+ *
+ * Alleen voor gewassen die er ook echt als een akker bij staan: voor losse paddenstoelen of
+ * een enkele pompoen levert "rijen" alleen maar rijtjes van één op, en dan is van dichtbij
+ * naar ver gewoon beter. Vandaar de check op de gemiddelde rijlengte.
+ */
+function orderInRows(tasks, botPos) {
+  const byDistance = (a, b) => botPos.distanceTo(a.pos) - botPos.distanceTo(b.pos);
+  if (tasks.length < 4) return tasks.sort(byDistance);
+
+  const xs = tasks.map(t => t.pos.x);
+  const zs = tasks.map(t => t.pos.z);
+  const langs = (Math.max(...xs) - Math.min(...xs)) >= (Math.max(...zs) - Math.min(...zs)) ? 'x' : 'z';
+  const dwars = langs === 'x' ? 'z' : 'x';
+
+  // Y hoort bij de sleutel: een terrasakker heeft boven en onder elkaar aparte rijen.
+  const rows = new Map();
+  for (const task of tasks) {
+    const key = `${task.pos.y},${task.pos[dwars]}`;
+    const row = rows.get(key) ?? [];
+    row.push(task);
+    rows.set(key, row);
+  }
+
+  if (tasks.length / rows.size < 2) return tasks.sort(byDistance);
+
+  const sorted = [...rows.values()].sort((a, b) => a[0].pos[dwars] - b[0].pos[dwars]);
+  const eerste = sorted[0][0].pos[dwars];
+  const laatste = sorted[sorted.length - 1][0].pos[dwars];
+  if (Math.abs(laatste - botPos[dwars]) < Math.abs(eerste - botPos[dwars])) sorted.reverse();
+
+  // Eerste rij beginnen aan het uiteinde waar de bot het dichtst bij staat; daarna om en om.
+  const kop = sorted[0];
+  const min = Math.min(...kop.map(t => t.pos[langs]));
+  const max = Math.max(...kop.map(t => t.pos[langs]));
+  let omgekeerd = Math.abs(max - botPos[langs]) < Math.abs(min - botPos[langs]);
+
+  const result = [];
+  for (const row of sorted) {
+    row.sort((a, b) => (a.pos[langs] - b.pos[langs]) * (omgekeerd ? -1 : 1));
+    result.push(...row);
+    omgekeerd = !omgekeerd;
+  }
+  return result;
+}
+
+/**
  * Zet ruwe posities om in concrete oogsttaken. Hier zit de categorie-logica die per
  * plantsoort bepaalt WELK blok je aanraakt en HOE:
  *   - REPLANT  -> het gevonden blok breken (bij 2-hoge planten de onderste helft)
@@ -180,9 +237,8 @@ function buildTasks(bot, positions, only = null) {
   // pompoenen heen en weer stuiterde: het dichtstbijzijnde blok is telkens van een ander
   // gewas, dus hij liep steeds een stukje terug en had aan het eind overal halve akkers.
   // Nu kiest hij het gewas waar hij het dichtst bij staat, maakt dat helemaal af, en pakt
-  // dan pas het volgende gewas — binnen een gewas nog steeds van dichtbij naar ver.
+  // dan pas het volgende gewas — binnen een gewas rij voor rij, zie orderInRows().
   const botPos = bot.entity.position;
-  const distance = (task) => botPos.distanceTo(task.pos);
 
   const perCrop = new Map();
   for (const task of tasks) {
@@ -192,9 +248,15 @@ function buildTasks(bot, positions, only = null) {
   }
 
   return [...perCrop.values()]
-    .map(group => group.sort((a, b) => distance(a) - distance(b)))
-    .sort((a, b) => distance(a[0]) - distance(b[0]))
-    .flat();
+    // De afstand van het dichtstbijzijnde blok bepaalt welk gewas eerst aan de beurt is, en
+    // die moet vóór het op rijen zetten berekend worden: daarna staat niet meer per se het
+    // dichtstbijzijnde blok vooraan, maar het begin van de dichtstbijzijnde rij.
+    .map(group => ({
+      afstand: Math.min(...group.map(task => botPos.distanceTo(task.pos))),
+      taken: orderInRows(group, botPos),
+    }))
+    .sort((a, b) => a.afstand - b.afstand)
+    .flatMap(gewas => gewas.taken);
 }
 
 // ---------------------------------------------------------------------------
@@ -831,6 +893,7 @@ module.exports = {
   // geëxporteerd voor tests en hergebruik
   scanCropBlocks,
   buildTasks,
+  orderInRows,
   isHarvestable,
   computeSurplus,
   equipSafeTool,
