@@ -204,6 +204,7 @@ function handleCommand(bot, username, message) {
       botState.stopFishing = true;
       botState.stopFetching = true;
       botState.stopSmithing = true;
+      botState.stopSinging = true;
 
       // En dan meteen alles fysiek afkappen. stopDigging() ontbrak: zonder dat bleef een
       // lopende dig gewoon doorgaan tot het blok kapot was, dus "!stop" voelde traag.

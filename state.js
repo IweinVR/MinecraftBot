@@ -47,6 +47,8 @@ const botState = {
   isTrading: false,
   stopTrading: false,
   tradeSession: 0,
+  isSinging: false,
+  stopSinging: false,
   isFishing: false,
   stopFishing: false,
   fishSession: 0,

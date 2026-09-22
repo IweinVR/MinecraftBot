@@ -13,13 +13,26 @@ const { CONFIG } = require('../config');
 const { Logger, getInventoryStatus } = require('../utils');
 const { songBook } = require('../data/songs');
 const { fightPlayer } = require('./combat');
+const botState = require('../state');
 
 const SONG_LINE_DELAY = 1300;
-let isSinging = false;
+const STOP_POLL_MS = 100;
 
+// In stukjes wachten in plaats van 1,3 seconde in een keer: anders ziet de lus de stopvlag pas
+// nadat de wachttijd afgelopen is, en zingt de bot na !stop nog een regel door.
+async function waitBetweenLines() {
+  for (let waited = 0; waited < SONG_LINE_DELAY; waited += STOP_POLL_MS) {
+    if (botState.stopSinging) return;
+    await new Promise(resolve => setTimeout(resolve, STOP_POLL_MS));
+  }
+}
+
+// isSinging/stopSinging staan in botState en niet meer in een losse variabele hier: !stop in
+// features/commands.js moet erbij kunnen. Zonder dat bleef de bot na !stop gewoon uitzingen.
 async function singSong(bot) {
-  if (isSinging) return;
-  isSinging = true;
+  if (botState.isSinging) return;
+  botState.isSinging = true;
+  botState.stopSinging = false;
 
   try {
     const song = songBook.getRandom();
@@ -27,13 +40,15 @@ async function singSong(bot) {
 
     Logger.debug(`Zingt: ${song.name}`);
     for (const line of song.lines) {
+      if (botState.stopSinging) break;
       bot.chat(line);
-      await new Promise(resolve => setTimeout(resolve, SONG_LINE_DELAY));
+      await waitBetweenLines();
     }
+    if (botState.stopSinging) Logger.debug('Zingen afgebroken door !stop');
   } catch (err) {
     Logger.error('Zing error', err);
   } finally {
-    isSinging = false;
+    botState.isSinging = false;
   }
 }
 

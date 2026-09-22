@@ -47,7 +47,8 @@ Je hoeft voor deze feature géén commando's met een `!` te gebruiken. Typ simpe
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Commando-voorrang (Priority):** De module weigert direct alle berichten die met een uitroepteken (`!`) beginnen. Dit voorkomt conflicten. Zonder deze regel zou een commando als `!follow Iwein` onbedoeld de "Iwein"-chat-trigger activeren, waardoor het daadwerkelijke volg-commando nooit zou worden uitgevoerd.
-* **Zang-Slot (Anti-Spam):** Omdat zingen tijd kost, is er een interne `isSinging` lock ingebouwd. Als spelers in de chat spammen met het woord "zing", voorkomt dit dat de bot tientallen liedjes tegelijk – en volledig door elkaar heen – gaat spuien.
+* **Zang-Slot (Anti-Spam):** Omdat zingen tijd kost, is er een `isSinging` lock ingebouwd (in `state.js`, zodat ook andere modules erbij kunnen). Als spelers in de chat spammen met het woord "zing", voorkomt dit dat de bot tientallen liedjes tegelijk – en volledig door elkaar heen – gaat spuien.
+* **Stoppen:** Typ `!stop` en de bot houdt midden in het liedje op. De wachttijd tussen twee regels wordt in stukjes van 100ms afgewacht, zodat hij de stopvlag meteen ziet en niet eerst de regel waar hij mee bezig was nog afmaakt.
 * **Zelf-Uitsluiting:** De bot negeert berichten die hij zelf heeft gestuurd (`username === bot.username`). Dit is een cruciale fail-safe om oneindige praat-loops (waarbij de bot op zijn eigen antwoord reageert) te voorkomen.
 
 **Stap-voor-stap Werking**
