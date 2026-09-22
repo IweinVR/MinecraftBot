@@ -278,6 +278,8 @@ Naast de commando-gestuurde features draaien er in de `watchers/` directory zes 
 
 Mineflayer-pathfinder herkent standaard alleen hekken (*fence gates*) als iets dat vanzelf opengaat, nooit echte deuren. Deze watcher lost dat apart op.
 
+Er zat nog een tweede probleem onder: de pathfinder bepaalt of hij ergens doorheen kan aan de hand van `boundingBox`, en dat is een eigenschap van het *bloktype*, niet van de stand. Een deur is daardoor voor hem altijd een dichte muur — óók als hij wagenwijd openstaat. Hij plande dus nooit een route een gebouw in, en de bot bleef voor de open deur staan. `setMovements()` in `utils.js` zet houten deuren daarom in de lijsten `carpets` en `fences` van de pathfinder, wat neerkomt op "behandel dit als lucht". De echte vorm van het blok telt gewoon mee in de loopsimulatie, dus een dichte deur houdt de bot nog steeds tegen — alleen staat hij er dan vóór, en dat is precies waar deze watcher hem openklikt. IJzeren deuren blijven expres een muur: die gaan niet met de hand open.
+
 **Werking**
 * Elke 250ms checkt de bot of er, in de richting waar hij op dat moment heen kijkt, een gesloten deur staat (op voet- of hoofdhoogte).
 * Is dat zo, dan klikt de bot de deur automatisch open (`activateBlock`).

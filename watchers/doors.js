@@ -5,6 +5,12 @@ const { Logger } = require('../utils');
 // niets aan. Deze watcher lost dat apart op: hij checkt continu of er een dichte deur vlak voor
 // de bot staat (op voet- en hoofdhoogte, in de richting waar de bot heen kijkt) en klikt 'm open.
 // (Hekken die de pathfinder zelf opent, worden weer dichtgeklikt door watchers/gates.js.)
+//
+// Dit werkt samen met setMovements() in utils.js: die zorgt dat de pathfinder een deuropening
+// überhaupt als doorgang ziet (voor hem is een deur anders altijd een dichte muur, ook als hij
+// openstaat). De pathfinder plant dus de route naar binnen, loopt tegen de dichte deur aan, en
+// deze watcher doet hem open.
+
 const CHECK_INTERVAL = 250;
 
 function isClosedDoor(block) {

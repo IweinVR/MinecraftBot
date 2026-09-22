@@ -56,6 +56,29 @@ function setMovements(bot, {
   // dus dit zetten we aan; mocht dit op deze server problemen geven, dan is dit de plek om terug te zetten.
   movements.canOpenDoors = true;
 
+  // Deuren zichtbaar maken als doorgang.
+  //
+  // mineflayer-pathfinder bepaalt "kan ik hier doorheen" met block.boundingBox, en dat is een
+  // eigenschap van het BLOKTYPE en niet van de stand (prismarine-block: boundingBox komt uit
+  // blocks.json, alleen `shapes` verschilt per state). Een deur is dus altijd 'block' — ook als
+  // hij wagenwijd openstaat. Daardoor zag de pathfinder een deuropening als een dichte muur,
+  // plande hij nooit een route naar binnen, en bleef de bot voor de open deur staan wachten.
+  //
+  // getBlock() haalt die classificatie uit precies twee lijsten: wat in `carpets` staat telt als
+  // veilig om in te lopen, en wat in `fences` staat telt niet als vloer om op te gaan staan. Een
+  // houten deur in allebei betekent: behandel hem als lucht. De echte vorm van het blok blijft
+  // gewoon meetellen in de sprong- en loopsimulatie, dus een DICHTE deur houdt de bot nog steeds
+  // tegen — alleen staat hij er dan vóór, en dat is precies waar watchers/doors.js hem binnen een
+  // kwart seconde openklikt.
+  //
+  // IJzeren deuren blijven expres solide: die gaan niet met de hand open, dus een route erdoorheen
+  // zou de bot alleen maar voor een dichte deur zetten.
+  for (const block of bot.registry.blocksArray) {
+    if (!block.name.endsWith('_door') || block.name === 'iron_door') continue;
+    movements.carpets.add(block.id);
+    movements.fences.add(block.id);
+  }
+
   // BELANGRIJK: movements.canPlace wordt in mineflayer-pathfinder@2.4.5 nergens gelezen door het
   // A*-algoritme (dode config) — het plant gewoon altijd bruggen/scaffolding zodra er dirt of
   // cobblestone in de inventaris zit. De enige manier om plaatsen daadwerkelijk te blokkeren is
