@@ -36,7 +36,7 @@ const armorManager = require('mineflayer-armor-manager');
 const { plugin: pvpPlugin } = require('mineflayer-pvp');
 const { CONFIG, HOSTILE_MOBS } = require('./config');
 const botState = require('./state');
-const { Logger, setMovements, findNearestEntity, distanceToGround, enforceNoBlockPlacing } = require('./utils');
+const { Logger, setMovements, findNearestEntity, distanceToGround, enforceNoBlockPlacing, abortAllTasks } = require('./utils');
 const { restoreGoal } = require('./features/mining');
 const { handleCommand } = require('./features/commands');
 const { useWaterBucket, faceAttacker, fleeFromDanger, defendAgainst } = require('./features/combat');
@@ -232,6 +232,11 @@ async function createBot() {
   bot.on('death', () => {
     Logger.warn('Bot is dood, wacht op respawn...');
 
+    // Alles wat liep is met de bot meegestorven. De lussen zelf ruimen hun isX-vlag niet op
+    // (ze hangen in een await die na de dood nooit meer afkomt), dus dat gebeurt hier — anders
+    // blijft de bot "Ik ben al aan het boeren!" antwoorden terwijl hij stilstaat.
+    abortAllTasks();
+
     // Eerst echt gerespawned zijn voordat we een doel herstellen: bot.respawn() gaat meteen
     // na 'death' de deur uit, maar de nieuwe positie en wereld zijn pas bij 'spawn' geldig.
     // Een vaste timeout van 2s raakte er regelmatig naast.
@@ -274,9 +279,7 @@ async function createBot() {
     // De follow-lus en mining-lus draaien op timers die de oude (dode) bot vasthouden.
     // Die moeten we hier loslaten, anders blijven ze naast de nieuwe verbinding doortikken.
     botState.followToken = null;
-    botState.isMining = false;
-    botState.isFighting = false;
-    botState.isFleeing = false;
+    abortAllTasks();
     botState.fallingTicks = 0;
     botState.bucketUsed = false;
 

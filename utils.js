@@ -281,9 +281,40 @@ function findNearbyBlocks(bot, blockNames, count = 10, searchRadius = CONFIG.sea
   return positions.map(pos => bot.blockAt(pos)).filter(Boolean);
 }
 
+// De taken die volgens de (isX, stopX)-afspraak uit state.js werken.
+const TASKS = [
+  'Mining', 'Fighting', 'Farming', 'Breeding', 'Sorting',
+  'Trading', 'Fishing', 'Fetching', 'Smithing', 'Singing',
+];
+
+/**
+ * Alle lopende taken afbreken en hun state leegmaken.
+ *
+ * Het gaat hier vooral om de isX-vlaggen. Sterft de bot tijdens het boeren, dan blijft de
+ * oogstlus hangen in een await die nooit meer afkomt — hij staat opeens bij zijn bed, zonder
+ * inventaris, meters van de akker — en dus komt zijn finally-blok, waar isFarming normaal
+ * uitgezet wordt, nooit aan de beurt. Daarna antwoordde de bot op elke !farm met "Ik ben al
+ * aan het boeren!" terwijl hij niets deed, en hielp !stop ook niet: dat zette alleen stopFarming.
+ *
+ * De stopX-vlaggen gaan aan zodat zo'n achtergebleven lus, mocht hij alsnog verder komen,
+ * meteen afbreekt in plaats van door te gaan alsof er niets gebeurd is.
+ */
+function abortAllTasks() {
+  for (const task of TASKS) {
+    botState[`is${task}`] = false;
+    botState[`stop${task}`] = true;
+  }
+  botState.isFleeing = false;
+  botState.isSuiciding = false;
+  // Teller, geen boolean: een taak die halverwege een bewuste plaatsing afgebroken wordt,
+  // laat hem anders boven nul achter en dan mag de pathfinder ineens blokken plaatsen.
+  botState.allowPlacement = 0;
+}
+
 module.exports = {
   Logger,
   setMovements,
+  abortAllTasks,
   distanceToGround,
   floorPos,
   findItem,

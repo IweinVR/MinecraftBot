@@ -19,7 +19,7 @@ const { goals } = require('mineflayer-pathfinder');
 const Vec3 = require('vec3');
 const { CONFIG, DIRECTIONS } = require('../config');
 const botState = require('../state');
-const { Logger, floorPos, getInventoryStatus, setMovements, findNearbyBlocks } = require('../utils');
+const { Logger, floorPos, getInventoryStatus, setMovements, findNearbyBlocks, abortAllTasks } = require('../utils');
 const { mineTunnel, mineCorridor } = require('./mining');
 
 const { setBedSpawn, killBot } = require('./combat');
@@ -191,21 +191,13 @@ function handleCommand(bot, username, message) {
 
     '!stop': () => {
       // Vlaggen eerst: de lopende lussen pollen hierop en breken hun huidige dig/goto af.
+      // abortAllTasks() zet ook elke isX op false — zonder dat bleef een taak die vastliep
+      // (of die met de bot mee was doodgegaan) voor altijd "ik ben al bezig" antwoorden.
       botState.shouldRestore = false;
       botState.lastGoal = null;
       botState.followToken = null;
       botState.lastMineData = null;
-      botState.isMining = false;
-      botState.stopMining = true;
-      botState.stopFighting = true;
-      botState.stopFarming = true;
-      botState.stopBreeding = true;
-      botState.stopSorting = true;
-      botState.stopTrading = true;
-      botState.stopFishing = true;
-      botState.stopFetching = true;
-      botState.stopSmithing = true;
-      botState.stopSinging = true;
+      abortAllTasks();
 
       // En dan meteen alles fysiek afkappen. stopDigging() ontbrak: zonder dat bleef een
       // lopende dig gewoon doorgaan tot het blok kapot was, dus "!stop" voelde traag.

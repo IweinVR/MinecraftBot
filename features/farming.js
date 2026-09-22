@@ -790,7 +790,11 @@ async function farmCrops(bot, { only = null, label = null } = {}) {
     Logger.error('Farm error', err);
     bot.chat('Er ging iets mis met het boeren.');
   } finally {
-    if (!superseded) {
+    // De sessie hier nog een keer vergelijken en niet alleen op de vlag vertrouwen:
+    // shouldStop() wordt niet per se nog aangeroepen nadat er een nieuwe ronde begonnen is,
+    // en dan zou deze oude run de state van de nieuwe leegmaken — waarmee die nieuwe ronde
+    // zichzelf meteen weer stopt.
+    if (!superseded && botState.farmSession === session) {
       botState.isFarming = false;
       botState.stopFarming = false;
       setMovements(bot, { canDig: false, canPlace: false, allowSprinting: true });

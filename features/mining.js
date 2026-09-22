@@ -486,7 +486,9 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
       await new Promise(resolve => setTimeout(resolve, 50));
     }
   } finally {
-    if (!superseded) {
+    // Zie de opmerking in farming.js: de sessie wordt hier opnieuw vergeleken, want een oude
+    // run die pas nu bij zijn finally aankomt mag de state van een nieuwe niet leegmaken.
+    if (!superseded && botState.miningSession === session) {
       botState.isMining = false;
       botState.stopMining = false;
       botState.lastMineData = null;
