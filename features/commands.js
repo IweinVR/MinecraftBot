@@ -242,7 +242,7 @@ function handleCommand(bot, username, message) {
       bot.chat('Navigatie: !kom | !komallow | !goto x y z | !gotoallow x y z | !follow @speler');
       bot.chat('Overig: !stop | !pos | !bed | !die | !stopmine | !collect blok aantal');
       bot.chat('Tunnel: !tunnel naar x y z | !tunnel naar mij | !tunnel noord 20');
-      bot.chat('  extra: zet er "breedte hoogte" achter, bv. !tunnel naar mij 3 3');
+      bot.chat('  grootte: zet "breedte hoogte" achter ELKE tunnelvorm, bv. !tunnel noord 20 3 3 (standaard is 1 breed, 2 hoog)');
       bot.chat('Boeren: !farm (graan, meloen/pompoen, bessen, riet/bamboe, fungi) | !stopfarm');
       bot.chat('Fokken: !breed (voert koeien, schapen, varkens, kippen... met het juiste voer)');
       bot.chat('Sorteren: !sort | !sort x y z (invoerkist) | !stopsort');

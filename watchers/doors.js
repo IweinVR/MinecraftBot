@@ -4,6 +4,7 @@ const { Logger } = require('../utils');
 // (fence gates, zie movements.js) en NOOIT met echte deuren — canOpenDoors=true helpt daar dus
 // niets aan. Deze watcher lost dat apart op: hij checkt continu of er een dichte deur vlak voor
 // de bot staat (op voet- en hoofdhoogte, in de richting waar de bot heen kijkt) en klikt 'm open.
+// (Hekken die de pathfinder zelf opent, worden weer dichtgeklikt door watchers/gates.js.)
 const CHECK_INTERVAL = 250;
 
 function isClosedDoor(block) {

@@ -43,6 +43,7 @@ const { useWaterBucket, faceAttacker, fleeFromDanger } = require('./features/com
 const { handleChatReactions } = require('./features/chat');
 const { startDoorWatcher } = require('./watchers/doors');
 const { startDrownWatcher } = require('./watchers/safety');
+const { startGateWatcher } = require('./watchers/gates');
 
 async function createBot() {
   Logger.info(`Connecting to ${CONFIG.server.host}:${CONFIG.server.port} as ${CONFIG.server.username}`);
@@ -54,6 +55,7 @@ async function createBot() {
   bot.loadPlugin(pvpPlugin);
   startDoorWatcher(bot);
   startDrownWatcher(bot);
+  startGateWatcher(bot);
 
   // mineflayer-auto-eat is ESM-only; dit project is CommonJS, dus het heeft een dynamic import nodig.
   // NOTE: bot.loadPlugin() *queuet* de plugin alleen tot mineflayers interne 'inject_allowed'-punt

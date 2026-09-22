@@ -175,7 +175,7 @@ Deze module is het brein achter het gestructureerd uitgraven van tunnels en gang
 **Hoe te gebruiken in-game**
 * **Tunnel via kompas:** Typ `!tunnel noord 20` (of zuid, oost, west) om een rechte gang van 20 blokken lang te graven.
 * **Tunnel naar doel:** Typ `!tunnel naar <x> <y> <z>` of `!tunnel naar mij` om de bot een gang te laten graven richting een specifiek punt of speler.
-* **Afmetingen aanpassen:** Voeg breedte en hoogte toe aan het einde van je commando, bijvoorbeeld: `!tunnel noord 20 3 3` voor een gang van 3 bij 3.
+* **Afmetingen aanpassen:** Zonder extra getallen graaft de bot standaard een gang van 1 breed bij 2 hoog. Voeg breedte en hoogte toe aan het einde van je commando om dat te veranderen, bijvoorbeeld: `!tunnel noord 20 3 3` voor een gang van 3 bij 3. Dit werkt bij elke tunnelvorm, dus ook `!tunnel naar mij 3 3` of `!tunnel naar <x> <y> <z> 3 3`.
 * **Stoppen:** Typ `!stopmine` (of `!stop`) om de graafwerkzaamheden onmiddellijk te staken.
 
 **Slimme Beveiligingen (Fail-safes)**
@@ -275,6 +275,15 @@ Mineflayer-pathfinder herkent standaard alleen hekken (*fence gates*) als iets d
 * Elke 250ms checkt de bot of er, in de richting waar hij op dat moment heen kijkt, een gesloten deur staat (op voet- of hoofdhoogte).
 * Is dat zo, dan klikt de bot de deur automatisch open (`activateBlock`).
 * IJzeren deuren worden bewust overgeslagen: die gaan niet met de hand open, dus klikken zou alleen maar een zinloze interactie per 250ms opleveren.
+
+### 🚧 Hekken sluiten (`watchers/gates.js`)
+
+Mineflayer-pathfinder opent hekken (*fence gates*) automatisch om erdoorheen te lopen, maar sluit ze nooit weer. Zonder ingrijpen blijft een hek dus openstaan zodra de bot voorbij is — bijvoorbeeld bij de ingang van een dierenwei — en lopen dieren of mobs zo naar buiten.
+
+**Werking**
+* De watcher houdt via het `blockUpdate`-event bij welke hekken open staan, ook als de pathfinder ze zelf opende.
+* Zodra een hek minstens 1,5 seconde open staat én de bot er niet meer vlak naast staat, klikt de watcher het weer dicht (`activateBlock`).
+* Staat de bot nog naast het hek (bijvoorbeeld omdat hij er net doorheen loopt), dan wordt het nog niet gesloten om hem niet voor zijn eigen neus op te sluiten.
 
 ### 🌊 Verdrinkingsbeveiliging (`watchers/safety.js`)
 
