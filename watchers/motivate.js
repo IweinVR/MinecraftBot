@@ -25,6 +25,10 @@ const MESSAGES = [
   (naam) => `${naam} — "It always seems impossible until it's done." — Nelson Mandela`,
   (naam) => `${naam} — "Success is not final; failure is not fatal: it is the courage to continue that counts." — Winston S. Churchill`,
   (naam) => `${naam} — "Do what you can, with what you have, where you are." — Theodore Roosevelt`,
+  (naam) => `${naam} — "Motivation gets attention. Discipline gets results."`,
+  (naam) => `${naam} — "You will never always be motivated. You have to learn to be disciplined."`,
+  (naam) => `${naam} — "The body achieves what the mind believes."`,
+  (naam) => `${naam} — "Success is the sum of small efforts, repeated day in and day out."`,
 ];
 
 function randomDelay() {
