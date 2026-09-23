@@ -47,6 +47,7 @@ const { startGateWatcher } = require('./watchers/gates');
 const { startJoinGreeter } = require('./watchers/greeting');
 const { startJumpWatcher } = require('./watchers/jump');
 const { startCreeperWatcher } = require('./watchers/creeper');
+const { startMotivationWatcher } = require('./watchers/motivate'); // easter egg, zie het bestand zelf voor waarom dit niet in de README staat
 
 async function createBot() {
   Logger.info(`Connecting to ${CONFIG.server.host}:${CONFIG.server.port} as ${CONFIG.server.username}`);
@@ -62,6 +63,7 @@ async function createBot() {
   startJoinGreeter(bot);
   startJumpWatcher(bot);
   startCreeperWatcher(bot);
+  startMotivationWatcher(bot);
 
   // mineflayer-auto-eat is ESM-only; dit project is CommonJS, dus het heeft een dynamic import nodig.
   // NOTE: bot.loadPlugin() *queuet* de plugin alleen tot mineflayers interne 'inject_allowed'-punt
