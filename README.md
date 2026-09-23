@@ -1,7 +1,7 @@
 # MinecraftBot README
 
 **Beschrijving**
-De MinecraftBot is een modulair geautomatiseerd script, gebouwd in Node.js en aangedreven door de Mineflayer-library. Hij speelt mee als gewone speler op een vanilla- of Paper-server en neemt het werk over dat je er zelf niet meer bij wilt doen: oogsten en herplanten, dieren fokken, tunnels graven, kisten sorteren, handelen met dorpelingen, vissen, spullen ophalen en gereedschap bijmaken. Daarnaast past hij op zichzelf — eten, verdrinken, valschade, monsters — en reageert hij op gewone chatberichten. Je stuurt hem aan met commando's in de chat; de rest doet hij zelfstandig.
+De MinecraftBot is een modulair geautomatiseerd script, gebouwd in Node.js en aangedreven door de Mineflayer-library. Hij speelt mee als gewone speler op een vanilla- of Paper-server en neemt het werk over dat je er zelf niet meer bij wilt doen: oogsten en herplanten, dieren fokken, tunnels graven, kisten sorteren, handelen met dorpelingen, vissen, spullen ophalen (of op verzoek uit eigen zak weggeven) en gereedschap bijmaken. Daarnaast past hij op zichzelf — eten, verdrinken, valschade, monsters, een creeper desnoods van afstand neerschieten — en reageert hij op gewone chatberichten. Je stuurt hem aan met commando's in de chat; de rest doet hij zelfstandig.
 
 ## Functionaliteiten (Features)
 
@@ -88,7 +88,7 @@ Alle commando's vereisen een uitroepteken (`!`) vooraf. Een kleine greep uit de 
 * **Tunnels & Delven:** `!tunnel naar mij`, `!tunnel noord 20` of `!collect <blok> <aantal>`. Voor tunnels kun je optioneel breedte en hoogte toevoegen (bijv. `!tunnel noord 20 3 3`).
 * **Noodrem:** Typ `!stop` in de chat. Dit is de ultieme noodrem die direct álle huidige acties van de bot afbreekt.
 * **Informatie:** `!help` toont een lijst met alle commando's. `!pos` rapporteert de huidige locatie en inventarisstatus in de chat.
-* **Gedelegeerde acties:** Alle functies uit andere modules activeer je hier (bijv. `!farm`, `!sort`, `!vis`, `!trade`, `!maak <item>`, `!haal <item>`). Veel daarvan nemen een aantal of een naam als argument: `!farm tarwe` (alleen dat gewas), `!vis 20` (aantal worpen), `!maak 8 torch` en `!haal 64 cobblestone`.
+* **Gedelegeerde acties:** Alle functies uit andere modules activeer je hier (bijv. `!farm`, `!sort`, `!vis`, `!trade`, `!maak <item>`, `!haal <item>`, `!geef <item>`). Veel daarvan nemen een aantal of een naam als argument: `!farm tarwe` (alleen dat gewas), `!vis 20` (aantal worpen), `!maak 8 torch`, `!haal 64 cobblestone` (uit de opslag) en `!geef pickaxe` (uit haar eigen inventaris).
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Crash Preventie (Prototype-check):** Bij het uitlezen van argumentloze commando's controleert de code veilig via `hasOwnProperty`. Dit voorkomt dat een grapjas de bot laat crashen door JavaScript-systeemwoorden zoals `!__proto__` of `!constructor` in de chat te typen.
@@ -110,21 +110,24 @@ Deze module werkt als het omgekeerde van het sorteersysteem. De bot fungeert als
 
 **Hoe te gebruiken in-game**
 * **Ophalen:** Typ `!haal <item>` of `!haal <aantal> <item>` (bijv. `!haal 64 cobblestone`). De bot pakt de spullen uit de opslag en gooit het voor je neer. Geef je geen aantal op? Dan pakt hij standaard een volle stack.
+* **Iets van haarzelf:** Typ `!geef <item>` of `!geef <aantal> <item>` (bijv. `!geef pickaxe` of `!geef 32 cobblestone`). Het verschil met `!haal`: dit haalt niets uit een kist, maar geeft iets weg dat de bot op dat moment al zelf bij zich draagt — handig om specifiek naar haar gereedschap te vragen. Geef je geen aantal op, dan krijg je alles wat ze ervan bij zich heeft.
 * **Zoeken:** Typ `!waar <item>` om in de chat de exacte coördinaten te zien van de kisten waar dit item ligt, zonder dat de bot ernaartoe loopt.
 * **Indexeren:** Typ `!index` om de bot handmatig alle kisten in de buurt te laten scannen zodat hij zijn geheugen (de index) vernieuwt.
-* **Stoppen:** Typ `!stophaal` of de algemene `!stop` om de bezorging direct te annuleren.
+* **Stoppen:** Typ `!stophaal` (voor `!haal`), `!stopgeven` (voor `!geef`) of de algemene `!stop` om de bezorging direct te annuleren.
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Zelfherstellend Geheugen:** Het zoeken kost nauwelijks tijd omdat de bot een cache-index (`lib/storage.js`) gebruikt. Als een speler stiekem een kist heeft leeggehaald, merkt de bot dit bij het openen. Hij werkt dan direct zijn index bij en zoekt naadloos verder in de volgende kist.
-* **Slimme Woordherkenning (`resolveItem`):** Je kunt gedeeltelijke namen typen (zoals "cobble"). Levert dit meerdere opties op? Dan kijkt de bot eerst naar wat er *daadwerkelijk* in de opslag ligt om de meest logische keuze te maken (hij kiest dan `cobblestone` in plaats van `cobblestone_stairs`).
+* **Slimme Woordherkenning (`resolveItem` / `resolveOwnItem`):** Je kunt gedeeltelijke namen typen (zoals "cobble"). Levert dit meerdere opties op? Dan kijkt de bot bij `!haal` naar wat er *daadwerkelijk* in de opslag ligt, en bij `!geef` naar wat ze *zelf* bij zich heeft, om de meest logische keuze te maken (hij kiest dan `cobblestone` in plaats van `cobblestone_stairs`).
+* **Losse taakstatus (`isGiving`):** `!geef` draait op zijn eigen sessie, los van `isFetching`. Zo botst een lopende `!geef` niet met een lopende `!haal` en andersom.
 * **Inventaris-limiet:** De bot stopt met het leeghalen van kisten zodra zijn eigen inventaris vol dreigt te raken (`minFreeSlots`), zodat er geen items onbedoeld op de grond vallen bij de kist.
 * **Veiligheidsrestricties (`courierMovements`):** Net als bij het fokken mag de bot tijdens het bezorgen géén blokken breken of plaatsen, en niet sprint-springen (geen parkour). Dit voorkomt schade aan de basis en farmland.
 * **Afstandsoptimalisatie:** Als een item in meerdere kisten ligt, rekent de bot de afstand (`distanceTo`) uit en bezoekt hij altijd de kist die het dichtstbij is.
+* **Rakere worp (`handOver`):** Vlak voor het neerleggen kijkt de bot naar de vóéten van de speler, niet naar zijn hoofd. `bot.toss()` gooit mee met de kijkrichting; recht vooruit kijken (naar het hoofd) geeft een vlakke hoek waardoor de spullen ver voorbij de speler vliegen, terwijl omlaag kijken zorgt dat ze vlak bij hem neerkomen.
 
 **Stap-voor-stap Werking**
 1. **Vertalen & Caching:** De bot vertaalt de zoekterm naar een exacte Minecraft-itemnaam. Vervolgens checkt hij de index. Is de index helemaal leeg? Dan scant hij proactief eerst alle kisten in de buurt (`buildIndex`).
 2. **Verzamelen (`takeFromChest`):** De bot navigeert naar de kist, opent de GUI (`openChest`), haalt exact het benodigde aantal items eruit en updatet tegelijkertijd zijn interne geheugen voor die kist.
-3. **Afleveren (`handOver`):** Na het verzamelen zoekt hij de speler op die de aanvraag deed (`findNearestEntity` of via de spelerslijst), navigeert ernaartoe en gooit de items voor diens voeten op de grond (`bot.toss`).
+3. **Afleveren (`handOver`):** Na het verzamelen (of, bij `!geef`, meteen) zoekt hij de speler op die de aanvraag deed (`findNearestEntity` of via de spelerslijst), navigeert ernaartoe en gooit de items voor diens voeten op de grond (`bot.toss`).
 
 ### 🌾 Landbouw & Oogsten (`features/farming.js`)
 
@@ -190,6 +193,8 @@ Deze module is het brein achter het gestructureerd uitgraven van tunnels en gang
 * **Van Boven naar Beneden (`crossSection`):** De bot graaft per cel altijd eerst het plafond en dan pas de vloer. Draai je dit om, dan zakt de bot in een gat terwijl er nog steen op hoofdhoogte staat, waarna zand of grind direct op zijn hoofd valt.
 * **Zwaartekracht-correctie (`digFallingBlocks`):** Blokken zoals grind, zand en aambeelden vallen naar beneden als je de vloer weghaalt. De bot wacht kort, detecteert of er iets gevallen is, en ruimt dit direct op zodat de tunnel echt netjes leeg is.
 * **Lava Ontwijking (`lavaNearby`):** Voordat een blok gebroken wordt, scant de bot de 6 direct omliggende blokken. Ligt er lava tegenaan? Dan wordt het blok overgeslagen (`Lava in de weg, ik graaf er omheen!`), zodat de tunnel niet plotseling volstroomt.
+* **Water en lava overslaan als graafdoel:** Minecraft-data noemt water zelfs `diggable: true`, maar door zijn hardheid (100) rekent `bot.dig()` er een graaftijd van tientallen seconden voor uit in plaats van de `Infinity` die een écht onbreekbaar blok krijgt. Zonder deze check bleef de bot dus een volle `safeDig`-timeout stilstaan te "graven" aan water (of aan lava die toevallig recht in het pad ligt) zonder dat er ooit iets kapotging. Beide worden nu net als lucht meteen overgeslagen: lopen of zwemmen erdoorheen kan gewoon.
+* **Drops per laag opruimen (`sweepMiningDrops`):** In een brede of hoge gang valt niet elk gebroken blok binnen Minecrafts oprapradius van het looppad. Na elke laag kijkt de bot daarom kort om zich heen en loopt hij naar wat is blijven liggen, in plaats van dat pas aan het einde van de hele tunnel te ontdekken.
 * **Auto-Opslag (`storeBlocksInChest`):** Raakt de inventaris vol? De bot zoekt een kist (of plaatst er desnoods zelf een uit zijn inventaris) en slaat alle onnodige blokken op voordat hij verder werkt.
 * **Slim Hervatten (`resumeFrom`):** Als de bot doodgaat, vlucht of herstart, onthoudt hij exact bij welke cel hij was gebleven (`lastMineData`). Hierdoor hoeft hij niet minutenlang in het niets te hakken om een al uitgegraven tunnel opnieuw te verwerken.
 
@@ -197,7 +202,8 @@ Deze module is het brein achter het gestructureerd uitgraven van tunnels en gang
 1. **Traject Berekenen (`corridorCells`):** Maakt een vloerplan aan naar het doelpunt. Er wordt altijd maar op één as tegelijk bewogen. Dit zorgt voor nette trappen en voorkomt diagonale sprongen waar de bot zelf niet doorheen past.
 2. **Gereedschap Kiezen (`equipBestTool`):** Kiest dynamisch het perfecte gereedschap uit de `TOOL_PREFERENCES` (bijl voor hout, schep voor zand, houweel voor steen) om de duurzaamheid en snelheid te optimaliseren.
 3. **Breken (`safeDig`):** Het blok wordt gebroken met een strakke timeout (15 seconden). Als de server lagt of het blok niet breekt, blijft de bot niet voor eeuwig hangen.
-4. **Verlichting (`placeBlock`):** Op vaste intervallen (`torchPlaceInterval`) plaatst de bot automatisch fakkels. Hij probeert deze bij voorkeur op de vloer te plaatsen in plaats van aan de muren.
+4. **Opruimen (`sweepMiningDrops`):** Na de kruisdoorsnede van een laag kijkt de bot om zich heen naar drops binnen een paar blokken en raapt ze op.
+5. **Verlichting (`placeBlock`):** Op vaste intervallen (`torchPlaceInterval`) plaatst de bot automatisch fakkels. Hij probeert deze bij voorkeur op de vloer te plaatsen in plaats van aan de muren.
 
 
 ### 🗄️ Inventaris & Sorteersysteem (`features/sorting.js`)
@@ -272,7 +278,7 @@ Deze module transformeert de bot in een volautomatische handelaar. Hij haalt lan
 
 ## Achtergrondprocessen (Watchers)
 
-Naast de commando-gestuurde features draaien er in de `watchers/` directory zes processen continu mee, vanaf het moment dat de bot spawnt, zonder dat daar een commando voor nodig is.
+Naast de commando-gestuurde features draaien er in de `watchers/` directory zeven processen continu mee, vanaf het moment dat de bot spawnt, zonder dat daar een commando voor nodig is.
 
 ### 🚪 Deuren openen (`watchers/doors.js`)
 
@@ -309,15 +315,16 @@ Mineflayer-pathfinder beslist per tick of hij mag springen door de sprong eerst 
 * Taken die bewust zonder parkour lopen (boeren, fokken, sorteren) laat de watcher met rust, en op akkerland of een schildpadei landt hij nooit: een sprong erop maakt er gewone aarde van of trapt het ei kapot.
 * Elke poging komt in de log te staan (`Vastgelopen tegen ... sprong 1/5`), en na vijf mislukte pogingen op dezelfde plek volgt een pauze van vijf seconden.
 
-### 💥 Creeper-alarm (`watchers/creeper.js`)
+### 💥 Creeper-verdediging (`watchers/creeper.js`)
 
-Een creeper is het enige monster waar terugvechten averechts werkt: ernaartoe lopen is precies wat hem laat ontploffen, en daarom staat hij ook in `NO_FIGHT_MOBS`. Weglopen lukt maar half, want hij loopt even hard als de bot. Wat wél altijd werkt is uitloggen.
+Een creeper is het enige monster waar terugvechten averechts werkt: ernaartoe *lopen* is precies wat hem laat ontploffen, en daarom staat hij ook in `NO_FIGHT_MOBS`. Een pijl afschieten hoeft daar niet voor — dat kan van ruime afstand, ver buiten zijn ontploffingsbereik. Komt hij tóch te dichtbij, dan lukt weglopen maar half (hij loopt even hard als de bot), en dan werkt alleen nog uitloggen.
 
 **Werking**
-* Komt er een creeper binnen 10 blokken, dan roept de bot in de chat om hulp mét zijn eigen coördinaten: *"Yo, creeper bij mij op 120 64 -310! Kom die plz helpen wegdoen."*
+* Ziet de bot een creeper tussen de 10 en 16 blokken afstand, en heeft ze een boog én pijlen bij zich, dan trekt ze de boog en schiet ze een pijl op hem af in plaats van meteen in paniek te raken. Dit wordt overgeslagen tijdens een gevecht, vlucht of `!die`, zodat het niet per ongeluk het wapen van die andere actie omwisselt.
+* Komt een creeper toch binnen 10 blokken (ondanks het schieten, of omdat er geen boog/pijlen zijn), dan roept de bot in de chat om hulp mét zijn eigen coördinaten: *"Yo, creeper bij mij op 120 64 -310! Kom die plz helpen wegdoen."*
 * Daarna meldt hij netjes dat hij zo terug is en verbreekt hij de verbinding (`bot.quit`). De herverbind-logica in `Index.js` wacht dan een minuut in plaats van de gebruikelijke vijf seconden — dat stuurt de watcher door via `botState.reconnectDelay`.
 * Na het opnieuw inloggen houdt hij zich 15 seconden stil, en tussen twee alarmen zit minstens 30 seconden. Zonder die twee pauzes zou een creeper die blijft staan de bot in een lus van uitloggen en inloggen houden, met elke keer dezelfde chatberichten.
-* Alle tijden en de afstand staan onder `creeper` in `config.js`.
+* Alle tijden en afstanden (`range`, `shootRange`, `drawTimeMs`) staan onder `creeper` in `config.js`. Alleen een gewone boog wordt ondersteund, geen crossbow.
 
 ### 👋 Welkomstbericht (`watchers/greeting.js`)
 
@@ -335,6 +342,15 @@ De pathfinder zwemt alleen omhoog zolang hij actief een pad volgt. Loopt de bot 
 * Onder 14/20 zuurstof zwemt de bot actief omhoog, ongeacht welke taak er loopt.
 * Onder 8/20 zuurstof laat de bot ook zijn huidige doel los (`bot.pathfinder.stop()`) en meldt dit in de chat, zodat hij niet blijft doorzwemmen naar een doel aan de overkant van het water terwijl hij bijna verdrinkt.
 * Is de bot weer boven water, dan wordt alles automatisch teruggezet.
+
+### 🔨 Gereedschap-kapot melding (`watchers/toolbreak.js`)
+
+Er bestaat geen apart mineflayer-event voor "dit item is gebroken" — als iets breekt stuurt de server gewoon een lege hand, precies zoals bij het wisselen van gereedschap of het weggeven ervan via `!geef`. Deze watcher onderscheidt de twee situaties en meldt het in de chat zodra het écht kapotgaat, bijvoorbeeld: *"Mijn diamond_pickaxe is net kapotgegaan!"*
+
+**Werking**
+* Wisselen van gereedschap of het legen van de hand selecteert altijd een ánder hotbar-slot. Alleen bij echte slijtage blijft hetzelfde slot geselecteerd terwijl de inhoud verandert.
+* De watcher onthoudt daarom per `heldItemChanged`-event welk slot geselecteerd was en wat erin zat. Blijft het slot gelijk, en had het vorige item nog maar 1 duurzaamheidspunt over toen het plotseling verdween, dan meldt de bot dat gereedschap als kapot.
+* Bekende beperking: geef je met `!geef` precies het gereedschap weg dat op dat moment exact 1 duurzaamheidspunt over heeft, dan meldt de bot dat ook als "kapot" — dat verlaat de hand namelijk via hetzelfde slot. Zeldzaam genoeg (exacte timing + exacte duurzaamheid) om te laten zitten.
 
 ## Datastructuren
 
@@ -404,7 +420,7 @@ Het project is robuust opgezet met externe afhankelijkheden en interne helper-sc
 *   **Configuratie**: De algemene instellingen, servergegevens en bot-parameters worden beheerd vanuit `config.js`. Vrijwel elk getal dat in de beschrijvingen hierboven genoemd wordt (zoekstralen, wachttijden, drempels) staat daar en niet in de modules zelf.
 *   **Gedeelde state (`state.js`)**: Eén object dat alle modules importeren, zodat een commando in de ene module een lus in de andere kan afbreken. Per taak geldt het drieluik `isX` (draait hij nu?), `stopX` (moet hij ophouden?) en `xSession` (welke run is de huidige?). `abortAllTasks()` uit `utils.js` zet dat drieluik in één keer terug — dat gebeurt bij `!stop`, bij de dood van de bot en bij een herverbinding.
 *   **Helpers (`utils.js`)**: De gedeelde gereedschapskist. Hier staan onder andere `setMovements()` (de enige plek waar een `Movements`-object gemaakt wordt), `enforceNoBlockPlacing()` (die afdwingt dat géén enkele plugin de pathfinder blokken laat plaatsen), de item-zoekers en `abortAllTasks()`.
-*   **Watchers (`watchers/`)**: Zes achtergrondprocessen die vanaf het spawnen meedraaien zonder commando — zie de sectie hierboven.
+*   **Watchers (`watchers/`)**: Zeven achtergrondprocessen die vanaf het spawnen meedraaien zonder commando — zie de sectie hierboven.
 *   **Data (`data/`)**: Statische registers los van de logica: het gewasregister (`crops.js`), het sorteerwoordenboek (`categories.js`) en het liedjesboek (`songs.js`).
 *   **Lib Directory**: Bevat gedeelde technische logica: `containers.js` (veilig kisten openen, sluiten en leegtrekken) en `storage.js` (de kistenindex die de koerier en de sorteerder gebruiken).
 *   **Node Modules**: De directe afhankelijkheden (zie `package.json`) zijn `mineflayer`, `mineflayer-pathfinder`, `mineflayer-auto-eat`, `mineflayer-collectblock`, `mineflayer-armor-manager`, `mineflayer-pvp` en `vec3`. Pakketten als `@nxg-org/mineflayer-util-plugin`, `protodef-validator` en `@azure/msal-node` (voor de Microsoft-authenticatie) zitten ook in `node_modules`, maar zijn transitieve afhankelijkheden van Mineflayer zelf — dit project roept ze niet rechtstreeks aan.
@@ -448,4 +464,4 @@ Bij `auth: 'microsoft'` en de eerste keer inloggen toont de terminal een code en
 ### Stap 5: In-game gebruiken
 Zodra de bot in de wereld staat, kun je hem aansturen met de commando's uit de secties hierboven. Typ `!help` in de chat voor een overzicht, en `!stop` werkt altijd als directe noodrem.
 
-Een paar dingen doet hij uit zichzelf, zonder commando: deuren openen en hekken sluiten, iedereen begroeten die inlogt, omhoog zwemmen als hij dreigt te verdrinken, terugvechten als een monster hem aanvalt, en — bij een creeper binnen tien blokken — in de chat om hulp roepen en een minuutje uitloggen. Verdwijnt hij plotseling van de server, kijk dan dus eerst even in de chat. Een taak die op dat moment liep (`!farm`, `!tunnel`) begint na het opnieuw inloggen niet vanzelf weer.
+Een paar dingen doet hij uit zichzelf, zonder commando: deuren openen en hekken sluiten, iedereen begroeten die inlogt, omhoog zwemmen als hij dreigt te verdrinken, terugvechten als een monster hem aanvalt, een creeper tussen de 10 en 16 blokken beschieten als ze een boog en pijlen bij zich heeft, en — bij een creeper binnen tien blokken — in de chat om hulp roepen en een minuutje uitloggen. Breekt er onderweg gereedschap uit haar hand, dan meldt ze dat ook meteen in de chat. Verdwijnt hij plotseling van de server, kijk dan dus eerst even in de chat. Een taak die op dat moment liep (`!farm`, `!tunnel`) begint na het opnieuw inloggen niet vanzelf weer.
