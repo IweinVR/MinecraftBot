@@ -21,6 +21,10 @@ const MESSAGES = [
   (naam) => `Even een schouderklopje voor ${naam} — knap werk tot nu toe!`,
   (naam) => `${naam}, ook al graaf je soms recht naar beneden: je bent op de goede weg.`,
   (naam) => `Onthoud dit, ${naam}: creepers ontploffen, maar jouw motivatie niet. Keep going!`,
+  (naam) => `${naam} — "It does not matter how slowly you go as long as you do not stop." — Confucius`,
+  (naam) => `${naam} — "It always seems impossible until it's done." — Nelson Mandela`,
+  (naam) => `${naam} — "Success is not final; failure is not fatal: it is the courage to continue that counts." — Winston S. Churchill`,
+  (naam) => `${naam} — "Do what you can, with what you have, where you are." — Theodore Roosevelt`,
 ];
 
 function randomDelay() {
