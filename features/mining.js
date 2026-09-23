@@ -361,6 +361,13 @@ function lavaNearby(bot, pos) {
 
 const UNBREAKABLE = ['bedrock', 'obsidian', 'barrier', 'end_portal', 'nether_portal', 'reinforced_deepslate'];
 
+// Water en lava lijken "gewoon" diggable (minecraft-data zet dat zelfs op true voor water),
+// maar de hardness (100) geeft een digTime van tientallen seconden i.p.v. de Infinity die je
+// bij bedrock krijgt. Daardoor gaf UNBREAKABLE hierboven geen snelle misser: de bot stond een
+// volle safeDig-timeout stil te "graven" aan een blok dat toch nooit stukgaat. Overslaan dus,
+// net als lucht — lopen/zwemmen erdoorheen kan gewoon.
+const LIQUIDS = ['water', 'lava'];
+
 function withinReach(bot, pos) {
   const eye = bot.entity.position.offset(0, bot.entity.height ?? 1.62, 0);
   return eye.distanceTo(pos.offset(0.5, 0.5, 0.5)) <= 4.5;
@@ -482,6 +489,7 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
 
         const block = bot.blockAt(target);
         if (!block || block.name === 'air' || block.name === 'cave_air' || block.name.includes('chest')) continue;
+        if (LIQUIDS.some(n => block.name.includes(n))) continue;
 
         if (UNBREAKABLE.some(n => block.name.includes(n))) {
           Logger.debug(`${block.name} op ${target} overgeslagen (onbreekbaar)`);
