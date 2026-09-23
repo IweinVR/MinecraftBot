@@ -49,6 +49,14 @@ const { startJumpWatcher } = require('./watchers/jump');
 const { startCreeperWatcher } = require('./watchers/creeper');
 const { startMotivationWatcher } = require('./watchers/motivate'); // easter egg, zie het bestand zelf voor waarom dit niet in de README staat
 
+// Een reactie of commando dat zijn eigen fout niet opvangt (bv. een vergeten .catch() op een
+// fire-and-forget async call) geeft normaal een unhandled rejection, en die killt in moderne
+// Node het hele proces — de bot lijkt dan zomaar "uit te loggen" zonder kick- of disconnect-
+// melding. Loggen en doorgaan is hier veiliger dan de bot laten crashen op iets dat de speler
+// gewoon in de chat typte.
+process.on('unhandledRejection', (err) => Logger.error('Unhandled rejection', err));
+process.on('uncaughtException', (err) => Logger.error('Uncaught exception', err));
+
 async function createBot() {
   Logger.info(`Connecting to ${CONFIG.server.host}:${CONFIG.server.port} as ${CONFIG.server.username}`);
   const bot = mineflayer.createBot(CONFIG.server);

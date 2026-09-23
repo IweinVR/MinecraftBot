@@ -123,7 +123,12 @@ function handleChatReactions(bot, username, message) {
   for (const { pattern, reply } of REACTIONS) {
     const match = message.match(pattern);
     if (match) {
-      reply(bot, username, match);
+      // reply() kan async zijn (zoals singSong); zonder deze .catch() wordt een fout daarin
+      // een unhandled rejection die het hele proces onderuit haalt in plaats van gewoon
+      // gelogd te worden. commands.js doet dit al zo voor elk commando, hier ontbrak het nog.
+      Promise.resolve()
+        .then(() => reply(bot, username, match))
+        .catch(err => Logger.error(`Chat-reactie op "${message}" faalde`, err));
       return true;
     }
   }
