@@ -307,7 +307,7 @@ function findNearbyBlocks(bot, blockNames, count = 10, searchRadius = CONFIG.sea
 // De taken die volgens de (isX, stopX)-afspraak uit state.js werken.
 const TASKS = [
   'Mining', 'Fighting', 'Farming', 'Breeding', 'Sorting',
-  'Trading', 'Fishing', 'Fetching', 'Smithing', 'Singing',
+  'Trading', 'Fishing', 'Fetching', 'Smithing', 'Singing', 'Giving',
 ];
 
 /**

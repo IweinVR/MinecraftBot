@@ -56,6 +56,29 @@ function resolveItem(bot, invoer) {
   return { naam: null, kandidaten: treffers.slice(0, 5) };
 }
 
+/**
+ * Zelfde idee als resolveItem, maar disambigueert met wat ze ECHT bij zich heeft in plaats
+ * van de kisten-index — logisch, want !geef gaat over haar eigen inventaris.
+ */
+function resolveOwnItem(bot, invoer) {
+  const zoek = String(invoer).toLowerCase().trim().replace(/\s+/g, '_');
+  if (!zoek) return { naam: null, kandidaten: [] };
+
+  if (bot.registry.itemsByName[zoek]) return { naam: zoek, kandidaten: [] };
+
+  const alle = Object.keys(bot.registry.itemsByName);
+  const treffers = alle.filter(n => n.includes(zoek));
+  if (treffers.length === 0) return { naam: null, kandidaten: [] };
+  if (treffers.length === 1) return { naam: treffers[0], kandidaten: [] };
+
+  const bijZich = new Set(bot.inventory.items().map(i => i.name));
+  const aanwezig = treffers.filter(n => bijZich.has(n));
+  if (aanwezig.length === 1) return { naam: aanwezig[0], kandidaten: [] };
+  if (aanwezig.length > 1) return { naam: null, kandidaten: aanwezig.slice(0, 5) };
+
+  return { naam: null, kandidaten: treffers.slice(0, 5) };
+}
+
 // ---------------------------------------------------------------------------
 // Kisten
 // ---------------------------------------------------------------------------
@@ -316,6 +339,89 @@ async function fetchItem(bot, username, zoekterm, gevraagd = null) {
 }
 
 // ---------------------------------------------------------------------------
+// Geven
+// ---------------------------------------------------------------------------
+
+/**
+ * !geef <aantal> <item> — het omgekeerde van !haal: dit haalt niks uit een kist, maar geeft
+ * iets weg dat ze op dit moment zelf bij zich draagt (bv. gereedschap, wat ze net gemined
+ * heeft, ...). Zonder aantal krijg je alles wat ze ervan heeft.
+ *
+ * Eigen sessie/vlag (isGiving) i.p.v. isFetching hergebruiken: anders zou !geef een lopende
+ * !haal afbreken en andersom, terwijl het allebei losse, korte klusjes zijn.
+ */
+async function giveItem(bot, username, zoekterm, gevraagd = null) {
+  if (botState.isGiving) {
+    bot.chat('Ik ben al iets aan het geven!');
+    return null;
+  }
+  if (botState.isFetching) {
+    bot.chat('Ik ben eerst nog aan het halen, momentje!');
+    return null;
+  }
+
+  const session = ++botState.giveSession;
+  botState.isGiving = true;
+  botState.stopGiving = false;
+  const shouldStop = () => botState.giveSession !== session || botState.stopGiving;
+
+  const totaal = { item: null, inBezit: 0, wil: 0, gegeven: 0 };
+
+  try {
+    const { naam, kandidaten } = resolveOwnItem(bot, zoekterm);
+    if (!naam) {
+      if (kandidaten.length > 0) bot.chat(`Bedoel je: ${kandidaten.join(', ')}?`);
+      else bot.chat(`Ik ken geen item dat "${zoekterm}" heet.`);
+      return totaal;
+    }
+    totaal.item = naam;
+
+    const inBezit = countItem(bot, naam);
+    totaal.inBezit = inBezit;
+    if (inBezit === 0) {
+      bot.chat(`Ik heb geen ${naam} bij me.`);
+      return totaal;
+    }
+
+    totaal.wil = Math.min(gevraagd ?? inBezit, inBezit);
+
+    courierMovements(bot);
+    bot.chat(`Komt eraan: ${totaal.wil} ${naam}.`);
+    totaal.gegeven = await handOver(bot, username, naam, totaal.wil, shouldStop);
+  } catch (err) {
+    Logger.error('Geeffout', err);
+    bot.chat('Er ging iets mis met geven.');
+  } finally {
+    if (botState.giveSession === session) {
+      botState.isGiving = false;
+      botState.stopGiving = false;
+      setMovements(bot, { canDig: false, canPlace: false, allowSprinting: true });
+    }
+  }
+
+  if (botState.giveSession === session && totaal.gegeven > 0) {
+    const mislukt = totaal.wil - totaal.gegeven;
+    const achtergehouden = totaal.inBezit - totaal.wil;
+    bot.chat(`Alsjeblieft: ${totaal.gegeven} ${totaal.item}.`
+      + (mislukt > 0 ? ` De rest lukte niet neer te leggen.` : '')
+      + (mislukt === 0 && achtergehouden > 0 ? ` De overige ${achtergehouden} hou ik zelf.` : ''));
+  }
+
+  return totaal;
+}
+
+function stopGiving(bot) {
+  if (!botState.isGiving) {
+    bot.chat('Ik ben niets aan het geven.');
+    return;
+  }
+  botState.stopGiving = true;
+  bot.pathfinder.stop();
+  bot.chat('Oke, ik stop met geven.');
+  Logger.info('Geven gestopt door gebruiker');
+}
+
+// ---------------------------------------------------------------------------
 // Opzoeken zonder te lopen
 // ---------------------------------------------------------------------------
 
@@ -397,11 +503,14 @@ function stopFetching(bot) {
 
 module.exports = {
   fetchItem,
+  giveItem,
+  stopGiving,
   whereIs,
   refreshIndex,
   stopFetching,
   // geëxporteerd voor tests en hergebruik
   resolveItem,
+  resolveOwnItem,
   buildIndex,
   takeFromChest,
   findAllChests,

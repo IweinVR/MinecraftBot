@@ -29,7 +29,7 @@ const { breedOnce } = require('./breeding');
 const { sortItems, stopSorting } = require('./sorting');
 const { tradeCrops, stopTrading } = require('./trading');
 const { fishForItems, stopFishing } = require('./fishing');
-const { fetchItem, whereIs, refreshIndex, stopFetching } = require('./courier');
+const { fetchItem, giveItem, stopGiving, whereIs, refreshIndex, stopFetching } = require('./courier');
 const { resupplyTools, craftItem, stopSmithing } = require('./toolsmith');
 
 // Nederlandse windrichtingen mogen ook; intern blijft alles Engels omdat DIRECTIONS dat is.
@@ -229,6 +229,7 @@ function handleCommand(bot, username, message) {
     '!stopvis': () => stopFishing(bot),
     '!index': () => refreshIndex(bot),
     '!stophaal': () => stopFetching(bot),
+    '!stopgeven': () => stopGiving(bot),
     '!gereedschap': () => resupplyTools(bot),
     '!stopmaak': () => stopSmithing(bot),
 
@@ -244,6 +245,7 @@ function handleCommand(bot, username, message) {
       bot.chat('Handelen: !trade | !trade kist x y z hal x y z [kluis x y z] | !stoptrade');
       bot.chat('Vissen: !vis | !vis 20 (aantal worpen) | !stopvis');
       bot.chat('Koerier: !haal 64 cobblestone | !haal diamond | !waar ijzer | !index | !stophaal');
+      bot.chat('  iets van haarzelf: !geef pickaxe | !geef 32 cobblestone (uit haar eigen inventaris) | !stopgeven');
       bot.chat('Smid: !gereedschap (aanvullen+repareren) | !maak diamond_pickaxe | !maak 8 torch');
     },
 
@@ -330,6 +332,19 @@ function handleCommand(bot, username, message) {
     fetchItem(bot, username, match[2].trim(), aantal).catch(err => {
       Logger.error('Koeriersfout', err);
       bot.chat('Er ging iets mis met halen.');
+    });
+    return;
+  }
+
+  // !geef <aantal> <item>  en  !geef <item>  (standaard alles wat ze ervan bij zich heeft)
+  // Het verschil met !haal: dit haalt niets uit een kist, maar geeft iets weg dat ze nu al
+  // in haar eigen inventaris heeft, zoals gereedschap of net geminede blokken.
+  match = message.match(/^!geef (?:(\d+) )?(.+)$/i);
+  if (match) {
+    const aantal = match[1] ? Number(match[1]) : null;
+    giveItem(bot, username, match[2].trim(), aantal).catch(err => {
+      Logger.error('Geeffout', err);
+      bot.chat('Er ging iets mis met geven.');
     });
     return;
   }
