@@ -1,11 +1,17 @@
 /**
- * Creeper-alarm: waarschuwen in de chat en even uitloggen.
+ * Creeper-verdediging: van veilige afstand beschieten, en als hij toch te dichtbij komt
+ * waarschuwen in de chat en even uitloggen.
  *
- * Een creeper is het enige monster waar terugvechten averechts werkt — ernaartoe lopen is
- * precies wat hem laat ontploffen, en daarom staat hij ook in NO_FIGHT_MOBS. Wegrennen lukt
- * maar half, want hij loopt even hard als de bot. Wat wél altijd werkt is uitloggen: een
- * uitgelogde speler is geen doelwit meer, en in een leeg stuk wereld verdwijnt de creeper
- * vanzelf zodra de chunks uit beeld raken.
+ * Ernaartoe LOPEN om te vechten werkt averechts — dat is precies wat een creeper laat
+ * ontploffen, en daarom staat hij ook in NO_FIGHT_MOBS. Een pijl afschieten hoeft daar niet
+ * voor: dat kan van ruime afstand, ver buiten zijn ontploffingsbereik. Heeft de bot een boog
+ * en pijlen bij zich, dan probeert hij een creeper tussen `range` en `shootRange` dus eerst
+ * neer te schieten in plaats van meteen in paniek te raken.
+ *
+ * Komt hij ondanks dat toch binnen `range`, dan is wegrennen nog steeds geen optie (hij loopt
+ * even hard als de bot). Wat wél altijd werkt is uitloggen: een uitgelogde speler is geen
+ * doelwit meer, en in een leeg stuk wereld verdwijnt de creeper vanzelf zodra de chunks uit
+ * beeld raken.
  *
  * De bot roept dus eerst om hulp met zijn coördinaten erbij, zegt dat hij zo terugkomt, en
  * verbindt daarna opnieuw. Dat laatste doet hij niet zelf: bot.quit() geeft 'end', en de
@@ -15,7 +21,7 @@
 
 const { CONFIG } = require('../config');
 const botState = require('../state');
-const { Logger } = require('../utils');
+const { Logger, findItem } = require('../utils');
 
 const CREEPER = CONFIG.creeper;
 
@@ -24,7 +30,7 @@ const CREEPER = CONFIG.creeper;
 // en blijft hij niet in een lus van uitloggen-inloggen-uitloggen hangen.
 let laatsteAlarm = 0;
 
-function nearestCreeper(bot) {
+function nearestCreeper(bot, maxRange = CREEPER.range) {
   let dichtstbij = null;
   let kortste = Infinity;
 
@@ -33,7 +39,7 @@ function nearestCreeper(bot) {
     // server/versie levert de naam met hoofdletter aan.
     if (!entity?.position || entity.name?.toLowerCase() !== 'creeper') continue;
     const afstand = bot.entity.position.distanceTo(entity.position);
-    if (afstand > CREEPER.range || afstand >= kortste) continue;
+    if (afstand > maxRange || afstand >= kortste) continue;
     kortste = afstand;
     dichtstbij = entity;
   }
@@ -41,8 +47,37 @@ function nearestCreeper(bot) {
   return dichtstbij ? { entity: dichtstbij, afstand: kortste } : null;
 }
 
+/** Heeft ze een boog én pijlen bij zich? Zonder pijlen heeft de boog equippen geen zin. */
+function heeftBoogEnPijl(bot) {
+  return Boolean(findItem(bot, 'bow') && findItem(bot, 'arrow'));
+}
+
+/**
+ * Boog trekken, op de creeper mikken en lossen. Eén pijl per aanroep — komt hij nog dichterbij
+ * of is hij dood, dan stopt de tick-lus vanzelf met opnieuw aanroepen.
+ */
+async function shootCreeper(bot, creeper) {
+  try {
+    const boog = findItem(bot, 'bow');
+    if (!boog || !findItem(bot, 'arrow') || !creeper.isValid) return;
+
+    await bot.equip(boog, 'hand');
+    if (!creeper.isValid) return; // kan tijdens het equippen alsnog verdwenen zijn
+
+    await bot.lookAt(creeper.position.offset(0, (creeper.height ?? 1.7) / 2, 0));
+    bot.activateItem();
+    await new Promise(resolve => setTimeout(resolve, CREEPER.drawTimeMs));
+    bot.deactivateItem();
+
+    Logger.debug(`Pijl afgeschoten op creeper op ${creeper.position.floored()}`);
+  } catch (err) {
+    Logger.debug(`Boogschot op creeper mislukt: ${err.message}`);
+  }
+}
+
 function startCreeperWatcher(bot) {
   let alarmLoopt = false;
+  let schietBezig = false;
   let lastCheck = 0;
   let spawnedAt = 0;
 
@@ -84,15 +119,31 @@ function startCreeperWatcher(bot) {
     // Net ingelogd: eerst even rondkijken. Zonder deze pauze logt hij bij een creeper die
     // blijft staan meteen weer uit, en staat de chat vol met dezelfde waarschuwing.
     if (!spawnedAt || now - spawnedAt < CREEPER.graceMs) return;
-    if (now - laatsteAlarm < CREEPER.cooldownMs) return;
 
-    const gevaar = nearestCreeper(bot);
+    // Breder zoeken dan het paniekbereik: een creeper tussen range en shootRange is nog
+    // veilig, en dat is precies de zone waarin schieten zin heeft.
+    const gevaar = nearestCreeper(bot, CREEPER.shootRange);
     if (!gevaar) return;
 
-    alarm(gevaar.entity, gevaar.afstand).catch(err => Logger.error('Creeper-alarm ging mis', err));
+    if (gevaar.afstand <= CREEPER.range) {
+      if (now - laatsteAlarm < CREEPER.cooldownMs) return;
+      alarm(gevaar.entity, gevaar.afstand).catch(err => Logger.error('Creeper-alarm ging mis', err));
+      return;
+    }
+
+    // Nog op veilige afstand: eerst proberen 'm neer te schieten voor hij dichterbij sluipt.
+    // Niet doen tijdens een gevecht/vlucht/zelfmoord elders — dan wisselt bot.equip() net
+    // op het verkeerde moment het wapen dat die andere actie nodig heeft.
+    if (!schietBezig && heeftBoogEnPijl(bot)
+        && !botState.isFighting && !botState.isFleeing && !botState.isSuiciding) {
+      schietBezig = true;
+      shootCreeper(bot, gevaar.entity)
+        .catch(err => Logger.debug(`Creeper-boogschot ging mis: ${err.message}`))
+        .finally(() => { schietBezig = false; });
+    }
   });
 
-  Logger.info('Creeper-alarm actief (waarschuwt in de chat en logt even uit)');
+  Logger.info('Creeper-verdediging actief (schiet van afstand, waarschuwt en logt uit als hij te dichtbij komt)');
 }
 
 module.exports = { startCreeperWatcher };
