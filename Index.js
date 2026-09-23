@@ -47,6 +47,7 @@ const { startGateWatcher } = require('./watchers/gates');
 const { startJoinGreeter } = require('./watchers/greeting');
 const { startJumpWatcher } = require('./watchers/jump');
 const { startCreeperWatcher } = require('./watchers/creeper');
+const { startToolBreakWatcher } = require('./watchers/toolbreak');
 const { startMotivationWatcher } = require('./watchers/motivate'); // easter egg, zie het bestand zelf voor waarom dit niet in de README staat
 
 // Een reactie of commando dat zijn eigen fout niet opvangt (bv. een vergeten .catch() op een
@@ -71,6 +72,7 @@ async function createBot() {
   startJoinGreeter(bot);
   startJumpWatcher(bot);
   startCreeperWatcher(bot);
+  startToolBreakWatcher(bot);
   startMotivationWatcher(bot);
 
   // mineflayer-auto-eat is ESM-only; dit project is CommonJS, dus het heeft een dynamic import nodig.
