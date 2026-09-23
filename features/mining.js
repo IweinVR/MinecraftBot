@@ -21,7 +21,9 @@ const { goals } = require('mineflayer-pathfinder');
 const Vec3 = require('vec3');
 const { CONFIG, DIRECTIONS, SIDE_DIRECTIONS, CHEST_BLOCKS } = require('../config');
 const botState = require('../state');
-const { Logger, setMovements, findItem, findItemExact, isItemToKeep, findNearestBlock, placeBlockAllowed, abortable } = require('../utils');
+const { Logger, setMovements, findItem, findItemExact, isItemToKeep, findNearestBlock, placeBlockAllowed, abortable, withTimeout } = require('../utils');
+
+const MINING = CONFIG.mining;
 
 // Volgorde is belangrijk: de specifiekste sleutels staan bovenaan, zodat 'cobblestone'
 // niet door de bredere 'stone'-regel wordt opgeslokt.
@@ -117,6 +119,59 @@ async function digFallingBlocks(bot, pos, shouldStop) {
     extra++;
   }
   return extra;
+}
+
+/** Alle item-entities binnen een straal, dichtstbij eerst. Zelfde aanpak als in farming.js. */
+function nearbyDrops(bot, radius) {
+  return Object.values(bot.entities)
+    .filter(e => e && e.name === 'item' && e.position)
+    .map(e => ({ entity: e, distance: bot.entity.position.distanceTo(e.position) }))
+    .filter(d => d.distance <= radius)
+    .sort((a, b) => a.distance - b.distance);
+}
+
+/**
+ * Naar een drop lopen tot hij opgeraapt is. Geeft false als de bot er niet bij kon.
+ *
+ * GoalNear met straal 1 laat de bot soms net buiten Minecrafts oprapradius staan; ligt het
+ * item er na aankomst nog, dan schuift de bot er alsnog bovenop (straal 0). Zie collectDrop
+ * in farming.js voor dezelfde redenering.
+ */
+async function collectDrop(bot, entity) {
+  const pos = entity.position;
+
+  for (const range of [1, 0]) {
+    try {
+      await withTimeout(
+        bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, range)),
+        MINING.dropSweepTimeout,
+        'drop oprapen'
+      );
+    } catch (err) {
+      Logger.debug(`Drop oprapen overgeslagen: ${err.message}`);
+      return !entity.isValid;
+    }
+    await new Promise(resolve => setTimeout(resolve, MINING.dropPickupDelay));
+    if (!entity.isValid) return true;
+  }
+
+  return !entity.isValid;
+}
+
+/**
+ * In een brede of hoge gang valt niet elk gemined blok op het looppad van de bot: Minecraft
+ * raapt alleen op wat binnen ongeveer 1 blok van de speler ligt, en de kruisdoorsnede reikt
+ * verder dan dat. Na elke laag (cel) even om zich heen kijken vangt die achterblijvers op,
+ * zonder dat de bot voor elk los blok een aparte omweg hoeft te maken tijdens het graven zelf.
+ */
+async function sweepMiningDrops(bot, shouldStop) {
+  let collected = 0;
+  for (const { entity } of nearbyDrops(bot, MINING.dropSweepRadius)) {
+    if (shouldStop()) break;
+    if (!entity.isValid) continue;
+    if (await collectDrop(bot, entity)) collected++;
+  }
+  return collected;
 }
 
 async function equipBestTool(bot, blockName) {
@@ -475,6 +530,11 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
           Logger.debug(`Block error op ${target}: ${err.message}`);
           blocksSkipped++;
         }
+      }
+
+      if (!shouldStop()) {
+        const swept = await sweepMiningDrops(bot, shouldStop);
+        if (swept > 0) Logger.debug(`${swept} achtergebleven drop(s) opgeraapt bij ${cell}`);
       }
 
       // Fakkels op vaste afstand langs de gang i.p.v. per zoveel gebroken blokken. Dat laatste

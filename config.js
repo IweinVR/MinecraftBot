@@ -118,6 +118,13 @@ const CONFIG = {
     defendTimeout: 30000,      // hoe lang hij hooguit achter één monster aan blijft vechten
     defendMaxDistance: 16,     // vlucht het monster verder weg, dan laat hij het lopen
   },
+  mining: {
+    // In een brede/hoge gang valt niet elk blok binnen Minecrafts oprapradius van het looppad.
+    // Na elke laag kort om zich heen kijken vangt die achterblijvers op.
+    dropSweepRadius: 4,
+    dropSweepTimeout: 4000,
+    dropPickupDelay: 250,    // wachten tot de server het oprapen doorgeeft
+  },
   farming: {
     scanRadius: 32,          // 2 chunks
     maxCropsPerScan: 256,
