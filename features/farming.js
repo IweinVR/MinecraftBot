@@ -595,8 +595,11 @@ async function deliverHarvest(bot) {
     bot.chat('Ik kom er niet bij, ik dump het hier.');
   }
 
+  // bot.toss() gooit het item mee met de kijkrichting: recht vooruit kijken geeft het
+  // vooral horizontale snelheid, waardoor het ver voorbij de speler vliegt. Naar de grond
+  // bij zijn voeten kijken geeft een steile hoek, zodat de spullen vlak bij hem neerkomen.
   try {
-    if (player.isValid) await bot.lookAt(player.position.offset(0, 1.6, 0));
+    if (player.isValid) await bot.lookAt(player.position);
   } catch (err) {
     Logger.debug('Kon niet naar speler kijken');
   }

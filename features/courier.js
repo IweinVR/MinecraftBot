@@ -174,8 +174,10 @@ async function handOver(bot, username, itemName, aantal, shouldStop) {
 
   if (shouldStop()) return 0;
 
+  // Naar het hoofd kijken geeft een vlakke hoek, waardoor bot.toss() het item ver voorbij de
+  // speler gooit. Naar zijn voeten kijken geeft een steile hoek, dus valt het vlak bij hem neer.
   try {
-    if (speler.isValid) await bot.lookAt(speler.position.offset(0, 1.6, 0));
+    if (speler.isValid) await bot.lookAt(speler.position);
   } catch (err) {
     Logger.debug('Kon niet naar de speler kijken');
   }
