@@ -70,8 +70,8 @@ const CHEST_BLOCKS = [
 
 const CONFIG = {
   server: {
-    host: 'localhost',
-    port: 25565,
+    host: 'Happystalker_70-hSSP.aternos.me:27062',
+    port: 27062,
     auth: 'microsoft',
     // Mojang is overgestapt op jaar-gebaseerde versienummers: dit heet '26.1', niet '1.26.1'.
     // Zo staat het ook in minecraft-data en in mineflayers testedVersions (protocol 775).
