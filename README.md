@@ -112,7 +112,8 @@ Deze module werkt als het omgekeerde van het sorteersysteem. De bot fungeert als
 * **Ophalen:** Typ `!haal <item>` of `!haal <aantal> <item>` (bijv. `!haal 64 cobblestone`). De bot pakt de spullen uit de opslag en gooit het voor je neer. Geef je geen aantal op? Dan pakt hij standaard een volle stack.
 * **Iets van haarzelf:** Typ `!geef <item>` of `!geef <aantal> <item>` (bijv. `!geef pickaxe` of `!geef 32 cobblestone`). Het verschil met `!haal`: dit haalt niets uit een kist, maar geeft iets weg dat de bot op dat moment al zelf bij zich draagt — handig om specifiek naar haar gereedschap te vragen. Geef je geen aantal op, dan krijg je alles wat ze ervan bij zich heeft.
 * **Zoeken:** Typ `!waar <item>` om in de chat de exacte coördinaten te zien van de kisten waar dit item ligt, zonder dat de bot ernaartoe loopt.
-* **Indexeren:** Typ `!index` om de bot handmatig alle kisten in de buurt te laten scannen zodat hij zijn geheugen (de index) vernieuwt.
+* **Indexeren:** Typ `!index` om de bot handmatig alle kisten in de buurt te laten scannen zodat hij zijn geheugen (de index) vernieuwt. Kan hij een kist niet bereiken of openen, dan zegt hij dat erbij, met de coördinaten van zo'n kist — anders is "er ligt niks" niet te onderscheiden van "ik ben er nooit bij gekomen".
+* **Vergeten:** Typ `!vergeet` om de index helemaal te wissen, bijvoorbeeld als je kisten omgebouwd of leeggehaald hebt. De volgende `!index`, `!sort` of `!haal` bouwt hem opnieuw op.
 * **Stoppen:** Typ `!stophaal` (voor `!haal`), `!stopgeven` (voor `!geef`) of de algemene `!stop` om de bezorging direct te annuleren.
 
 **Slimme Beveiligingen (Fail-safes)**
@@ -122,6 +123,7 @@ Deze module werkt als het omgekeerde van het sorteersysteem. De bot fungeert als
 * **Inventaris-limiet:** De bot stopt met het leeghalen van kisten zodra zijn eigen inventaris vol dreigt te raken (`minFreeSlots`), zodat er geen items onbedoeld op de grond vallen bij de kist.
 * **Veiligheidsrestricties (`courierMovements`):** Net als bij het fokken mag de bot tijdens het bezorgen géén blokken breken of plaatsen, en niet sprint-springen (geen parkour). Dit voorkomt schade aan de basis en farmland.
 * **Afstandsoptimalisatie:** Als een item in meerdere kisten ligt, rekent de bot de afstand (`distanceTo`) uit en bezoekt hij altijd de kist die het dichtstbij is.
+* **Dubbele kisten één keer (`chestPartner`):** Elke helft van een dubbele kist is een eigen blok, maar ze delen één inhoud. `!index` opent er daarom maar één helft en slaat de andere over; eerder stond dezelfde inhoud dubbel in de index en liep hij elke dubbele kist twee keer af. Welke kant de andere helft zit, volgt uit de blokstate (`facing` en `type`), net als in vanilla.
 * **Rakere worp (`handOver`):** Vlak voor het neerleggen kijkt de bot naar de vóéten van de speler, niet naar zijn hoofd. `bot.toss()` gooit mee met de kijkrichting; recht vooruit kijken (naar het hoofd) geeft een vlakke hoek waardoor de spullen ver voorbij de speler vliegen, terwijl omlaag kijken zorgt dat ze vlak bij hem neerkomen.
 
 **Stap-voor-stap Werking**
@@ -258,7 +260,7 @@ Deze module maakt de bot volledig zelfvoorzienend. In plaats van domweg te stopp
 Deze module transformeert de bot in een volautomatische handelaar. Hij haalt landbouwgewassen uit de opslag, bezoekt een handelshal met dorpelingen (villagers), verkoopt alles voor smaragden (emeralds) en bergt de pure winst netjes op in een kluiskist.
 
 **Hoe te gebruiken in-game**
-* **Automatisch:** Typ `!trade` in de chat. De bot zoekt zelf de dichtstbijzijnde kist met gewassen en handelt met dorpelingen in de directe omgeving.
+* **Automatisch:** Typ `!trade` in de chat. De bot zoekt zelf de kist met gewassen en handelt met dorpelingen in de directe omgeving. Heeft hij van `!index` of `!sort` al een lijst, dan kiest hij de kist met de meeste verhandelbare gewassen; anders de dichtstbijzijnde kist. De smaragden gaan dan terug in diezelfde kist.
 * **Geavanceerd (Op afstand):** Typ `!trade kist <x> <y> <z> hal <x> <y> <z> [kluis <x> <y> <z>]` om de bot een exacte route te geven. Handig als je boerderij, handelshal en kluis ver uit elkaar liggen.
 * **Stoppen:** Typ `!stoptrade` (of `!stop`) om het handelen direct te beëindigen.
 
@@ -269,12 +271,16 @@ Deze module transformeert de bot in een volautomatische handelaar. Hij haalt lan
 * **Beroeps- en Ruilfilter (`isCropSale`):** De bot checkt scherp of de aanbieding wel "gewas voor smaragd" is. Dit voorkomt dat hij per ongeluk smaragden uitgeeft om brood te kópen, of bij een visser of bibliothecaris probeert te pinnen.
 * **Anti-Vastloop (Ruimte-check):** Voordat de bot op de ruil-knop drukt, controleert hij of hij wel een vrije plek of een bestaande stack smaragden in zijn inventaris heeft. Zonder plek kan de ruil niet voltooien en zou het scherm voor eeuwig open blijven staan.
 * **Gegarandeerde Venster-Cleanup:** Dankzij het `finally`-blok wordt het handelsscherm áltijd gesloten. Zelfs als een dorpeling halverwege in een mijnkarretje stapt of wegrent, bevriest de bot niet.
+* **Geen eeuwige ruil (`tradeTimeout`):** `bot.trade()` wacht na het kiezen van een ruil tot de server de invoerslots vult, zonder timeout. Kwam die update niet, dan bleef `!trade` voor altijd hangen en antwoordde de bot op elke volgende `!trade` "Ik ben al aan het handelen!". Nu geeft hij het na 20 seconden op bij die dorpeling.
+* **Zegt waarom het niet lukt:** Kon hij met geen enkele dorpeling ruilen, dan meldt hij per reden hoe vaak: `onbereikbaar`, `koopt geen gewassen`, `uitverkocht`, `wil een gewas dat ik niet (genoeg) heb`, ... Eerder bleef hij dan gewoon stil.
+* **Niets blijft aan hem hangen:** Wat hij niet kwijt kon, legt hij na afloop terug in de voorraadkist — alleen wat hij eruit haalde, niet de gewassen die hij zelf al bij zich had. Is het de moeite niet waard (minder dan `minStock`), dan gaat het meteen terug.
 
 **Stap-voor-stap Werking**
 1. **Inladen (`withdrawCrops`):** De bot opent de voorraadkist en pakt zoveel mogelijk verhandelbare gewassen (zoals wortels, aardappelen, tarwe). Hij filtert bewust zaken als glow berries eruit, omdat boeren die niet accepteren.
 2. **Navigatie:** Hij loopt (veilig zonder blokken te breken of plaatsen) naar de ingestelde handelshal of zoekt dorpelingen in de buurt.
 3. **Onderhandelen (`tradeWithVillager`):** Hij stapt op elke dorpeling af, controleert of ze boer zijn, en pompt de ruilen maximaal vol totdat de dorpeling weigert (trade locked) of de gewassen op zijn.
-4. **Winst Afstorten (`depositEmeralds`):** Na zijn ronde navigeert de bot naar de kluiskist (of terug naar de invoerkist) en stort hij alle verdiende smaragden veilig af.
+4. **Winst Afstorten (`depositEmeralds`):** Na zijn ronde navigeert de bot naar de kluiskist (of terug naar de voorraadkist) en stort hij alle verdiende smaragden veilig af.
+5. **Rest Terugleggen (`returnCrops`):** Gewassen die geen dorpeling wilde of kon kopen, gaan terug in de voorraadkist. Is de kluis dezelfde kist, dan gebeurt dat in één keer met het afstorten.
 
 ## Achtergrondprocessen (Watchers)
 
@@ -434,7 +440,7 @@ Het project is robuust opgezet met externe afhankelijkheden en interne helper-sc
 
 *   **Configuratie**: De algemene instellingen, servergegevens en bot-parameters worden beheerd vanuit `config.js`. Vrijwel elk getal dat in de beschrijvingen hierboven genoemd wordt (zoekstralen, wachttijden, drempels) staat daar en niet in de modules zelf.
 *   **Gedeelde state (`state.js`)**: Eén object dat alle modules importeren, zodat een commando in de ene module een lus in de andere kan afbreken. Per taak geldt het drieluik `isX` (draait hij nu?), `stopX` (moet hij ophouden?) en `xSession` (welke run is de huidige?). `abortAllTasks()` uit `utils.js` zet dat drieluik in één keer terug — dat gebeurt bij `!stop`, bij de dood van de bot en bij een herverbinding.
-*   **Helpers (`utils.js`)**: De gedeelde gereedschapskist. Hier staan onder andere `setMovements()` (de enige plek waar een `Movements`-object gemaakt wordt), `enforceNoBlockPlacing()` (die afdwingt dat géén enkele plugin de pathfinder blokken laat plaatsen), de item-zoekers en `abortAllTasks()`.
+*   **Helpers (`utils.js`)**: De gedeelde gereedschapskist. Hier staan onder andere `setMovements()` (de enige plek waar een `Movements`-object gemaakt wordt), `enforceNoBlockPlacing()` (die afdwingt dat géén enkele plugin de pathfinder blokken laat plaatsen), `hasPathTo()` (de padcheck vóór elke wandeling naar een kist, gewas, dier of dorpeling), de item-zoekers en `abortAllTasks()`. `hasPathTo()` rekent de zoektocht helemaal af: mineflayers eigen `getPathTo()` stopt na 40ms met status `partial`, en daardoor telde alles achter een muur of achterin een opslagruimte eerder als onbereikbaar.
 *   **Watchers (`watchers/`)**: Zeven achtergrondprocessen die vanaf het spawnen meedraaien zonder commando — zie de sectie hierboven.
 *   **Data (`data/`)**: Statische registers los van de logica: het gewasregister (`crops.js`), het sorteerwoordenboek (`categories.js`) en het liedjesboek (`songs.js`).
 *   **Lib Directory**: Bevat gedeelde technische logica: `containers.js` (veilig kisten openen, sluiten en leegtrekken), `storage.js` (de kistenindex die de koerier en de sorteerder gebruiken) en `movementPackets.js` (de bewegingspakketten die mineflayer bij 26.1 zelf niet goed stuurt, zie hierboven).

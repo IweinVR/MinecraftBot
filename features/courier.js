@@ -86,8 +86,37 @@ function resolveOwnItem(bot, invoer) {
 function findAllChests(bot) {
   const ids = STORAGE_BLOCKS.map(n => bot.registry.blocksByName[n]?.id).filter(id => id !== undefined);
   if (ids.length === 0) return [];
-  return bot.findBlocks({ matching: ids, maxDistance: KOERIER.chestRadius, count: KOERIER.maxChests })
+  // Twee keer zoveel blokken als kisten: een dubbele kist zijn twee blokken. Met maxChests
+  // blokken viel bij een opslagmuur van dubbele kisten de verste helft van de muur af.
+  return bot.findBlocks({ matching: ids, maxDistance: KOERIER.chestRadius, count: KOERIER.maxChests * 2 })
     .sort((a, b) => bot.entity.position.distanceTo(a) - bot.entity.position.distanceTo(b));
+}
+
+// facing.getClockWise() uit vanilla, als [dx, dz].
+const RECHTSOM = { north: [1, 0], east: [0, 1], south: [-1, 0], west: [0, -1] };
+
+/**
+ * De andere helft van een dubbele kist, of null bij een enkele kist (of een ton, shulker, ...).
+ *
+ * Elke helft is een eigen blok, dus zonder dit werd een dubbele kist twee keer geopend en
+ * stond dezelfde inhoud twee keer in de index. Welke kant de andere helft zit volgt uit de
+ * blokstate, net als in vanilla (ChestBlock.getConnectedDirection): type=left hoort bij de kist
+ * rechtsom van zijn facing, type=right bij die linksom. GeyserMC rekent het precies zo uit
+ * (DoubleChestBlockEntityTranslator). Niet overnemen uit mineflayers FACING_MAP in
+ * block_actions.js: die staat andersom.
+ */
+function chestPartner(bot, pos) {
+  const blok = bot.blockAt(pos);
+  const props = blok?.getProperties?.() ?? {};
+  const rechtsom = RECHTSOM[props.facing];
+  if (!rechtsom || (props.type !== 'left' && props.type !== 'right')) return null;
+
+  const [dx, dz] = props.type === 'left' ? rechtsom : [-rechtsom[0], -rechtsom[1]];
+  const partner = pos.offset(dx, 0, dz);
+  const ander = bot.blockAt(partner);
+  const anderProps = ander?.getProperties?.() ?? {};
+  if (ander?.name !== blok.name || anderProps.facing !== props.facing || anderProps.type === props.type) return null;
+  return partner;
 }
 
 const openChest = (bot, pos, shouldStop) =>
@@ -96,26 +125,41 @@ const openChest = (bot, pos, shouldStop) =>
 /**
  * Loopt langs alle kisten in de buurt en schrijft de inhoud in de index, zonder iets te
  * verplaatsen. Dit is wat !index doet, en wat !haal zelf doet als de index nog leeg is.
+ *
+ * @returns {Promise<{bekeken: number, mislukt: Vec3[]}>} mislukt = kisten die niet open gingen
  */
 async function buildIndex(bot, shouldStop) {
   const kisten = findAllChests(bot);
-  let bekeken = 0;
+  const gehad = new Set();   // andere helften van dubbele kisten die al bekeken zijn
+  const stats = { bekeken: 0, mislukt: [] };
 
   for (const pos of kisten) {
-    if (shouldStop()) break;
+    if (shouldStop() || stats.bekeken >= KOERIER.maxChests) break;
+    if (gehad.has(pos.toString())) continue;
 
     const window = await openChest(bot, pos, shouldStop);
     if (!window) {
+      if (shouldStop()) break;
       storage.forget(pos);
+      stats.mislukt.push(pos);
       continue;
     }
 
     storage.record(pos, window.containerItems());
+    const partner = chestPartner(bot, pos);
+    if (partner) {
+      gehad.add(partner.toString());
+      storage.forget(partner);   // kan er nog van het sorteren in staan, dan telde hij dubbel
+    }
     await closeWindow(bot, window, KOERIER);
-    bekeken++;
+    stats.bekeken++;
   }
 
-  return bekeken;
+  if (stats.mislukt.length > 0) {
+    Logger.warn(`Index: ${stats.mislukt.length} kisten niet open gekregen: `
+      + stats.mislukt.map(p => `${p.x} ${p.y} ${p.z}`).join(', '));
+  }
+  return stats;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +312,7 @@ async function fetchItem(bot, username, zoekterm, gevraagd = null) {
     // Nog nooit gesorteerd of geïndexeerd? Dan eerst kijken wat er staat.
     if (storage.isEmpty()) {
       bot.chat('Ik weet nog niet wat waar ligt, ik kijk even rond...');
-      const bekeken = await buildIndex(bot, shouldStop);
+      const { bekeken } = await buildIndex(bot, shouldStop);
       Logger.info(`Index opgebouwd: ${bekeken} kisten`);
       if (bekeken === 0) {
         bot.chat('Ik zie hier geen kisten.');
@@ -471,9 +515,15 @@ async function refreshIndex(bot) {
     courierMovements(bot);
     bot.chat('Ik loop de kisten na...');
     storage.clear();
-    const bekeken = await buildIndex(bot, shouldStop);
+    const { bekeken, mislukt } = await buildIndex(bot, shouldStop);
     const s = storage.stats();
     bot.chat(`${bekeken} kisten bekeken: ${s.items} items in ${s.soorten} soorten.`);
+    // Zonder deze melding was "hij zegt dat er niks is" niet te onderscheiden van "hij is er
+    // nooit bij gekomen".
+    if (mislukt.length > 0) {
+      const p = mislukt[0];
+      bot.chat(`${mislukt.length} kist(en) kon ik niet bereiken of openen, bv. op ${p.x} ${p.y} ${p.z}.`);
+    }
     Logger.info(`Index: ${s.kisten} kisten, ${s.items} items, ${s.soorten} soorten`);
     return bekeken;
   } catch (err) {
@@ -488,6 +538,19 @@ async function refreshIndex(bot) {
       setMovements(bot, { canDig: false, canPlace: false, allowSprinting: true });
     }
   }
+}
+
+/**
+ * !vergeet — de lijst van wat waar ligt weggooien. Handig als hij door omgebouwde of
+ * leeggehaalde kisten niet meer klopt; de volgende !index, !sort of !haal bouwt hem opnieuw op.
+ */
+function forgetIndex(bot) {
+  const { kisten } = storage.stats();
+  storage.clear();
+  bot.chat(kisten > 0
+    ? `Oke, ik ben vergeten wat er in ${kisten} kisten zat.`
+    : 'Ik had nog niks onthouden, dus er valt niks te vergeten.');
+  Logger.info(`Kistenindex gewist (${kisten} kisten)`);
 }
 
 function stopFetching(bot) {
@@ -507,6 +570,7 @@ module.exports = {
   stopGiving,
   whereIs,
   refreshIndex,
+  forgetIndex,
   stopFetching,
   // geëxporteerd voor tests en hergebruik
   resolveItem,
@@ -514,5 +578,6 @@ module.exports = {
   buildIndex,
   takeFromChest,
   findAllChests,
+  chestPartner,
   countItem,
 };

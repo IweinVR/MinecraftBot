@@ -27,8 +27,8 @@ const { goals } = require('mineflayer-pathfinder');
 const Vec3 = require('vec3');
 const { CONFIG } = require('../config');
 const botState = require('../state');
-const { Logger, setMovements, withTimeout } = require('../utils');
-const { closeWindow, openContainerAt, hasPathTo, sleep } = require('../lib/containers');
+const { Logger, setMovements, withTimeout, hasPathTo } = require('../utils');
+const { closeWindow, openContainerAt, sleep } = require('../lib/containers');
 const { findInputChest, sortItems, sortableItems, STORAGE_BLOCKS } = require('./sorting');
 
 const FISH = CONFIG.fishing;
@@ -95,7 +95,7 @@ function isOpenWater(bot, pos) {
  *
  * @returns {{stand: Vec3, mik: Vec3} | null}
  */
-function findFishingSpot(bot) {
+async function findFishingSpot(bot) {
   const waterId = bot.registry.blocksByName.water?.id;
   if (waterId === undefined) return null;
 
@@ -119,7 +119,7 @@ function findFishingSpot(bot) {
       if (!isAir(bot.blockAt(oever.offset(0, 2, 0)))) continue;            // geen ruimte voor hoofd
 
       const stand = oever.offset(0, 1, 0);
-      if (!hasPathTo(bot, stand, FISH)) continue;
+      if (!await hasPathTo(bot, stand, FISH)) continue;
 
       // Verder het water op mikken dan het blok pal voor je neus: mik je te dichtbij, dan
       // ketst de dobber op de oever en gebeurt er niets.
@@ -306,7 +306,7 @@ async function fishForItems(bot, maxCasts = FISH.maxCasts) {
 
     fishMovements(bot);
 
-    const stek = findFishingSpot(bot);
+    const stek = await findFishingSpot(bot);
     if (!stek) {
       bot.chat('Ik zie geen open water waar ik bij kan.');
       return totaal;

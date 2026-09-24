@@ -190,9 +190,10 @@ const CONFIG = {
     tradeDelay: 200,         // rust tussen twee bot.trade()-aanroepen
     hallRange: 3,            // hoe dicht op het middelpunt van de hal hij gaat staan
     reachDistance: 3,        // vanilla interactie-afstand voor entities
-    approachRange: 1,
+    approachRange: 2,        // 1 is vaak onhaalbaar bij een dorpeling in een hokje van een handelshal
     approachAttempts: 3,     // een dorpeling loopt weg; zo vaak opnieuw richten
     approachTimeout: 12000,
+    tradeTimeout: 20000,     // per bot.trade()-aanroep; die wacht zelf eeuwig op de server
     travelTimeout: 60000,    // de handelshal kan ver weg staan
     pathCheckTimeout: 500,
     openTimeout: 5000,       // slapende dorpeling stuurt nooit een handelslijst

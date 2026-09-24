@@ -24,8 +24,9 @@ const { goals } = require('mineflayer-pathfinder');
 const Vec3 = require('vec3');
 const { CONFIG, CHEST_BLOCKS } = require('../config');
 const botState = require('../state');
-const { Logger, setMovements, withTimeout } = require('../utils');
-const { closeWindow, openContainerAt, hasPathTo, equipNonPlaceable, sleep } = require('../lib/containers');
+const { Logger, setMovements, withTimeout, hasPathTo } = require('../utils');
+const { closeWindow, openContainerAt, equipNonPlaceable, returnCursorItem, sleep } = require('../lib/containers');
+const storage = require('../lib/storage');
 
 const TRADE = CONFIG.trading;
 
@@ -133,7 +134,7 @@ async function approachVillager(bot, id, shouldStop) {
     if (bot.entity.position.distanceTo(levend.position) <= TRADE.reachDistance) return true;
 
     const doel = levend.position.floored();
-    if (!hasPathTo(bot, doel, TRADE)) {
+    if (!await hasPathTo(bot, doel, TRADE)) {
       Logger.debug(`Geen pad naar dorpeling #${id}`);
       return false;
     }
@@ -165,14 +166,16 @@ async function approachVillager(bot, id, shouldStop) {
  * openstaan, dan weigert de server het volgende openVillager() en staat de bot de rest van de
  * ronde tegen een dorpeling aan te kijken.
  *
- * @returns {Promise<{geruild: number, smaragden: number, gesloten: boolean}>}
+ * @returns {Promise<{geruild: number, smaragden: number, gesloten: boolean, reden: string|null}>}
  *   gesloten = elke bruikbare ruil van deze dorpeling zit nu op slot
+ *   reden    = waarom er niets geruild is (voor de melding in de chat), null als het wel lukte
  */
 async function tradeWithVillager(bot, entity, shouldStop) {
-  const stats = { geruild: 0, smaragden: 0, gesloten: false };
+  const stats = { geruild: 0, smaragden: 0, gesloten: false, reden: null };
 
   if (!await approachVillager(bot, entity.id, shouldStop)) {
     Logger.debug('Kon niet bij de dorpeling komen');
+    stats.reden = 'onbereikbaar';
     return stats;
   }
 
@@ -188,12 +191,14 @@ async function tradeWithVillager(bot, entity, shouldStop) {
   } catch (err) {
     Logger.warn(`Handelsscherm ging niet open: ${err.message}`);
     if (bot.currentWindow) await closeWindow(bot, bot.currentWindow, TRADE);
+    stats.reden = 'ging niet open';
     return stats;
   }
 
   try {
     if (!Array.isArray(villager.trades) || villager.trades.length === 0) {
       Logger.debug('Dorpeling heeft geen handel (nog geen beroep?)');
+      stats.reden = 'koopt geen gewassen';
       return stats;
     }
 
@@ -203,13 +208,15 @@ async function tradeWithVillager(bot, entity, shouldStop) {
 
     if (bruikbaar.length === 0) {
       Logger.debug(`Dorpeling handelt niet in gewassen (${villager.trades.length} ruilen bekeken)`);
+      stats.reden = 'koopt geen gewassen';
       return stats;
     }
 
     const smaragdenVoor = countItem(bot, EMERALD);
+    let vastgelopen = false;
 
     for (const { trade, index } of bruikbaar) {
-      if (shouldStop()) break;
+      if (shouldStop() || vastgelopen) break;
 
       // Zolang de handel niet op slot zit en we het kunnen betalen, doorgaan. bot.trade()
       // werkt nbTradeUses en tradeDisabled bij, dus deze lus loopt vanzelf leeg.
@@ -218,12 +225,17 @@ async function tradeWithVillager(bot, entity, shouldStop) {
         if (aantal < 1) break;
 
         try {
-          await bot.trade(villager, index, aantal);
+          // bot.trade() wacht na het kiezen van de ruil tot de server de invoerslots vult, en
+          // daar zit geen timeout op. Komt die update nooit, dan bleef !trade eeuwig hangen
+          // en antwoordde de bot daarna op elke !trade "Ik ben al aan het handelen!".
+          await withTimeout(bot.trade(villager, index, aantal), TRADE.tradeTimeout, 'ruilen');
           stats.geruild += aantal;
           Logger.debug(`${aantal}x geruild: ${trade.realPrice} ${trade.inputItem1.name} -> ${trade.outputItem.count} smaragd`);
         } catch (err) {
           // 'trade blocked' en 'Not enough item' zijn normale eindes, geen fouten.
           Logger.debug(`Ruil gestopt: ${err.message}`);
+          // Na een timeout is het venster in een onbekende staat: niet verder met deze dorpeling.
+          if (/timeout/.test(err.message)) vastgelopen = true;
           break;
         }
 
@@ -237,6 +249,14 @@ async function tradeWithVillager(bot, entity, shouldStop) {
 
     stats.smaragden = countItem(bot, EMERALD) - smaragdenVoor;
     stats.gesloten = bruikbaar.every(({ trade }) => usesLeft(trade) === 0);
+
+    if (stats.geruild === 0) {
+      const kanBetalen = ({ trade }) => countItem(bot, trade.inputItem1.name) >= (trade.realPrice ?? trade.inputItem1.count);
+      if (vastgelopen) stats.reden = 'ruilen liep vast';
+      else if (stats.gesloten) stats.reden = 'uitverkocht';
+      else if (!bruikbaar.some(kanBetalen)) stats.reden = 'wil een gewas dat ik niet (genoeg) heb';
+      else stats.reden = 'ruilen mislukte';
+    }
   } finally {
     // Altijd sluiten, ook na een fout: een openstaand venster blokkeert de volgende dorpeling.
     await closeWindow(bot, villager, TRADE);
@@ -262,6 +282,32 @@ function findChest(bot, coords, radius, label) {
   const gevonden = bot.findBlocks({ matching: ids, maxDistance: radius, count: 1 });
   if (gevonden.length === 0) return { pos: null, reden: `geen ${label} in de buurt` };
   return { pos: gevonden[0], reden: null };
+}
+
+/**
+ * De voorraadkist als er geen coördinaten meegegeven zijn.
+ *
+ * De dichtstbijzijnde kist kan net zo goed de kluis of een willekeurige opslagkist zijn, en dan
+ * meldt !trade "maar 0 gewassen". Weet de bot van !index of !sort al wat waar ligt, dan pakt hij
+ * de kist met de meeste verhandelbare gewassen.
+ */
+function findCropChest(bot) {
+  const perKist = new Map();
+  for (const naam of TRADEABLE_CROPS) {
+    for (const treffer of storage.lookup(naam)) {
+      if (bot.entity.position.distanceTo(treffer.pos) > TRADE.chestRadius) continue;
+      const sleutel = treffer.pos.toString();
+      const kist = perKist.get(sleutel) ?? { pos: treffer.pos, aantal: 0 };
+      kist.aantal += treffer.count;
+      perKist.set(sleutel, kist);
+    }
+  }
+
+  const beste = [...perKist.values()].sort((a, b) => b.aantal - a.aantal)[0];
+  if (beste && CONTAINER_BLOCKS.includes(bot.blockAt(beste.pos)?.name)) {
+    return { pos: beste.pos, reden: null };
+  }
+  return findChest(bot, null, TRADE.chestRadius, 'voorraadkist');
 }
 
 const openChest = (bot, pos, shouldStop, label) =>
@@ -304,6 +350,48 @@ async function withdrawCrops(bot, window, shouldStop) {
   return stats;
 }
 
+/**
+ * Hoeveel van de opgehaalde gewassen draagt de bot nog bij zich?
+ *
+ * Alleen wat hij uit de kist haalde gaat terug, niet wat hij zelf al had (van het boeren
+ * bijvoorbeeld). Ruilen verbruikt eerst het opgehaalde: had hij 10 eigen tarwe, haalde hij er
+ * 64 bij en ruilde hij er 40 weg, dan gaan er 24 terug en houdt hij zijn eigen 10.
+ */
+function leftoverCrops(bot, meegenomen, eigen) {
+  const rest = {};
+  for (const [naam, aantal] of Object.entries(meegenomen)) {
+    const over = Math.min(aantal, countItem(bot, naam) - (eigen[naam] ?? 0));
+    if (over > 0) rest[naam] = over;
+  }
+  return rest;
+}
+
+/**
+ * Legt de gewassen die niet geruild zijn terug in de (geopende) voorraadkist.
+ * Werkt `meegenomen` bij, zodat een tweede aanroep niets dubbel teruglegt.
+ */
+async function returnCrops(bot, window, meegenomen, eigen) {
+  let teruggelegd = 0;
+
+  for (const [naam, aantal] of Object.entries(leftoverCrops(bot, meegenomen, eigen))) {
+    const type = bot.registry.itemsByName[naam]?.id;
+    if (type === undefined) continue;
+    try {
+      await window.deposit(type, null, aantal);
+      teruggelegd += aantal;
+      meegenomen[naam] -= aantal;
+      Logger.debug(`${aantal}x ${naam} terug in de voorraadkist`);
+    } catch (err) {
+      // Kist vol: wat al aan de cursor hing terug de inventaris in, anders valt het op de grond.
+      Logger.warn(`Kon ${naam} niet terugleggen: ${err.message}`);
+      await returnCursorItem(bot, window);
+      break;
+    }
+  }
+
+  return teruggelegd;
+}
+
 /** Legt alle smaragden in de kluiskist. */
 async function depositEmeralds(bot, window) {
   let gestort = 0;
@@ -337,11 +425,13 @@ function tradeMovements(bot) {
 }
 
 /**
- * Eén handelsronde: gewassen ophalen, langs de dorpelingen, smaragden wegbergen.
+ * Eén handelsronde: gewassen ophalen, langs de dorpelingen, smaragden wegbergen, en wat niet
+ * geruild kon worden terug in de voorraadkist.
  *
  * @param {object} bot
  * @param {object} [opts]
- * @param {{x,y,z}} [opts.cropChest] voorraadkist; standaard de dichtstbijzijnde kist
+ * @param {{x,y,z}} [opts.cropChest] voorraadkist; standaard de kist met de meeste gewassen volgens
+ *                                   de index, en zonder index de dichtstbijzijnde kist
  * @param {{x,y,z}} [opts.hall]      middelpunt van de handelshal; standaard waar de bot staat
  * @param {{x,y,z}} [opts.vault]     kluiskist; standaard de voorraadkist
  */
@@ -356,14 +446,17 @@ async function tradeCrops(bot, opts = {}) {
   botState.stopTrading = false;
   const shouldStop = () => botState.tradeSession !== session || botState.stopTrading;
 
-  const totaal = { opgehaald: 0, geruild: 0, smaragden: 0, dorpelingen: 0, gestort: 0 };
+  const totaal = { opgehaald: 0, geruild: 0, smaragden: 0, dorpelingen: 0, gestort: 0, teruggelegd: 0 };
+  const redenen = {};       // waarom het bij een dorpeling niet lukte -> hoe vaak
   let window = null;
 
   try {
     tradeMovements(bot);
 
     // --- stap 1: gewassen ophalen ---
-    const { pos: kistPos, reden } = findChest(bot, opts.cropChest, TRADE.chestRadius, 'voorraadkist');
+    const { pos: kistPos, reden } = opts.cropChest
+      ? findChest(bot, opts.cropChest, TRADE.chestRadius, 'voorraadkist')
+      : findCropChest(bot);
     if (!kistPos) {
       bot.chat(`Ik kan de voorraadkist niet vinden: ${reden}.`);
       return totaal;
@@ -375,15 +468,23 @@ async function tradeCrops(bot, opts = {}) {
       return totaal;
     }
 
+    // Wat de bot zelf al bij zich had blijft van hem; alleen het opgehaalde gaat straks terug.
+    const eigen = Object.fromEntries([...TRADEABLE_CROPS].map(naam => [naam, countItem(bot, naam)]));
     const oogst = await withdrawCrops(bot, window, shouldStop);
-    await closeWindow(bot, window, TRADE);
-    window = null;
+    const meegenomen = { ...oogst.perGewas };
     totaal.opgehaald = oogst.opgehaald;
 
     if (oogst.opgehaald < TRADE.minStock) {
+      // Meteen terug in dezelfde kist, die staat toch nog open.
+      await returnCrops(bot, window, meegenomen, eigen);
+      await closeWindow(bot, window, TRADE);
+      window = null;
       bot.chat(`Maar ${oogst.opgehaald} gewassen in de kist, dat is de wandeling niet waard.`);
       return totaal;
     }
+
+    await closeWindow(bot, window, TRADE);
+    window = null;
 
     const lijst = Object.entries(oogst.perGewas).map(([k, v]) => `${v}x ${k}`).join(', ');
     bot.chat(`${oogst.opgehaald} gewassen opgehaald (${lijst}), ik ga handelen.`);
@@ -391,7 +492,7 @@ async function tradeCrops(bot, opts = {}) {
     // --- stap 2: naar de handelshal ---
     if (opts.hall && !shouldStop()) {
       const hal = new Vec3(opts.hall.x, opts.hall.y, opts.hall.z);
-      if (hasPathTo(bot, hal, TRADE)) {
+      if (await hasPathTo(bot, hal, TRADE)) {
         try {
           await withTimeout(
             bot.pathfinder.goto(new goals.GoalNear(hal.x, hal.y, hal.z, TRADE.hallRange)),
@@ -429,24 +530,52 @@ async function tradeCrops(bot, opts = {}) {
         totaal.dorpelingen++;
         totaal.geruild += resultaat.geruild;
         totaal.smaragden += resultaat.smaragden;
+      } else if (resultaat.reden) {
+        redenen[resultaat.reden] = (redenen[resultaat.reden] ?? 0) + 1;
       }
     }
 
+    if (totaal.geruild === 0 && Object.keys(redenen).length > 0) {
+      const waarom = Object.entries(redenen).map(([r, n]) => `${n}x ${r}`).join(', ');
+      bot.chat(`Niks kunnen ruilen met ${dorpelingen.length} dorpelingen: ${waarom}.`);
+    }
+
     // --- stap 7: smaragden wegbergen ---
+    // Zonder aparte kluis gaan ze in de voorraadkist: dat is wat de uitleg belooft. Eerder werd
+    // dat de dichtstbijzijnde kist van waar de bot na het handelen stond.
+    const kluis = opts.vault
+      ? findChest(bot, opts.vault, TRADE.chestRadius, 'kluiskist')
+      : { pos: kistPos, reden: null };
+    const kluisIsVoorraad = !!kluis.pos && kluis.pos.equals(kistPos);
+
     const smaragden = countItem(bot, EMERALD);
     if (smaragden > 0 && !shouldStop()) {
-      const kluis = findChest(bot, opts.vault ?? opts.cropChest, TRADE.chestRadius, 'kluiskist');
       if (!kluis.pos) {
         bot.chat(`Ik kan de kluiskist niet vinden: ${kluis.reden}. Ik hou de smaragden bij me.`);
       } else {
         window = await openChest(bot, kluis.pos, shouldStop, 'kluiskist');
         if (window) {
           totaal.gestort = await depositEmeralds(bot, window);
+          // Zelfde kist? Dan meteen ook de rest van de gewassen erin, scheelt een keer openen.
+          if (kluisIsVoorraad) totaal.teruggelegd += await returnCrops(bot, window, meegenomen, eigen);
           await closeWindow(bot, window, TRADE);
           window = null;
         } else {
           bot.chat('Ik kan de kluiskist niet openen, ik hou de smaragden bij me.');
         }
+      }
+    }
+
+    // --- stap 8: wat niet geruild is terug in de voorraadkist ---
+    if (!shouldStop() && Object.keys(leftoverCrops(bot, meegenomen, eigen)).length > 0) {
+      window = await openChest(bot, kistPos, shouldStop, 'voorraadkist');
+      if (window) {
+        totaal.teruggelegd += await returnCrops(bot, window, meegenomen, eigen);
+        await closeWindow(bot, window, TRADE);
+        window = null;
+      }
+      if (Object.keys(leftoverCrops(bot, meegenomen, eigen)).length > 0) {
+        bot.chat('Ik kon niet alle gewassen terugleggen in de voorraadkist, de rest hou ik bij me.');
       }
     }
   } catch (err) {
@@ -465,11 +594,15 @@ async function tradeCrops(bot, opts = {}) {
   }
 
   Logger.info(`HANDELEN KLAAR: ${totaal.opgehaald} gewassen opgehaald, ${totaal.geruild} ruilen `
-    + `met ${totaal.dorpelingen} dorpelingen, ${totaal.smaragden} smaragden, ${totaal.gestort} gestort`);
+    + `met ${totaal.dorpelingen} dorpelingen, ${totaal.smaragden} smaragden, ${totaal.gestort} gestort, `
+    + `${totaal.teruggelegd} gewassen teruggelegd`);
 
-  if (botState.tradeSession === session && totaal.geruild > 0) {
-    bot.chat(`Klaar: ${totaal.geruild} ruilen met ${totaal.dorpelingen} dorpelingen, ${totaal.smaragden} smaragden verdiend.`);
+  if (botState.tradeSession === session) {
+    if (totaal.geruild > 0) {
+      bot.chat(`Klaar: ${totaal.geruild} ruilen met ${totaal.dorpelingen} dorpelingen, ${totaal.smaragden} smaragden verdiend.`);
+    }
     if (totaal.gestort > 0) bot.chat(`${totaal.gestort} smaragden in de kluis gelegd.`);
+    if (totaal.teruggelegd > 0) bot.chat(`${totaal.teruggelegd} gewassen die ik niet kwijt kon teruggelegd in de voorraadkist.`);
   }
 
   return totaal;

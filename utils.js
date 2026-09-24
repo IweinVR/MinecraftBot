@@ -17,7 +17,7 @@
  * klassieke bron van bugs hier.
  */
 
-const { Movements } = require('mineflayer-pathfinder');
+const { Movements, goals } = require('mineflayer-pathfinder');
 const { CONFIG, KEEP_ITEMS, FOOD_ITEMS } = require('./config');
 const botState = require('./state');
 
@@ -87,6 +87,35 @@ function setMovements(bot, {
 
   Logger.debug(`setMovements: canDig=${canDig}, canPlace=${canPlace}, allowSprinting=${allowSprinting}, canOpenDoors=true`);
   bot.pathfinder.setMovements(movements);
+}
+
+/**
+ * Is er een begaanbaar pad naar deze positie? Puur een check, de bot beweegt niet.
+ *
+ * Dit stond drie keer in het project als bot.pathfinder.getPathTo(movements, goal, timeout), en
+ * dat kijkt maar één stukje ver: A* rekent per aanroep hooguit tickTimeout (40ms) en geeft dan
+ * status 'partial' terug, hoe ruim de timeout ook is. Alles wat meer dan 40ms rekenwerk kost —
+ * een kist achter een muur, achterin een opslagruimte met gangpaden — telde dus als "geen pad".
+ * Daardoor kwamen kisten nooit in de !index, en liep !trade langs dorpelingen en de handelshal.
+ *
+ * Hier wordt de zoektocht afgemaakt, tot pathCheckTimeout. Tussen de stukjes van 40ms door komt
+ * de rest van de bot aan de beurt: in één ruk 500ms rekenen per gewas legt bij het boeren de
+ * hele bot (en zijn keepalive) seconden lang stil.
+ */
+async function hasPathTo(bot, pos, { approachRange = 2, pathCheckTimeout = 500 } = {}) {
+  const goal = new goals.GoalNear(pos.x, pos.y, pos.z, approachRange);
+  const zoektocht = bot.pathfinder.getPathFromTo(bot.pathfinder.movements, bot.entity.position, goal, {
+    timeout: pathCheckTimeout,
+    optimizePath: false,   // het pad zelf gebruiken we niet, alleen of het er is
+  });
+
+  let result = null;
+  for (const stap of zoektocht) {
+    result = stap.result;
+    if (result.status !== 'partial') break;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  return result?.status === 'success';
 }
 
 function distanceToGround(bot, maxDistance = 32) {
@@ -337,6 +366,7 @@ function abortAllTasks() {
 module.exports = {
   Logger,
   setMovements,
+  hasPathTo,
   abortAllTasks,
   distanceToGround,
   floorPos,

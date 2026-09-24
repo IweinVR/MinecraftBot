@@ -20,7 +20,7 @@ const Vec3 = require('vec3');
 const { CONFIG } = require('../config');
 const botState = require('../state');
 const {
-  Logger, setMovements, findItemExact, placeBlockAllowed, withTimeout, findNearestEntity,
+  Logger, setMovements, findItemExact, placeBlockAllowed, withTimeout, findNearestEntity, hasPathTo,
 } = require('../utils');
 const { safeDig } = require('./mining');
 const {
@@ -263,11 +263,7 @@ function buildTasks(bot, positions, only = null) {
 // Stap 2: bereikbaarheid
 // ---------------------------------------------------------------------------
 
-function hasPathTo(bot, pos) {
-  const goal = new goals.GoalNear(pos.x, pos.y, pos.z, FARM.approachRange);
-  const result = bot.pathfinder.getPathTo(bot.pathfinder.movements, goal, FARM.pathCheckTimeout);
-  return !!result && result.status === 'success';
-}
+// De padcheck zelf is hasPathTo() uit utils.js, met FARM.approachRange en FARM.pathCheckTimeout.
 
 function distanceTo(bot, pos) {
   return bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5));
@@ -577,7 +573,7 @@ async function deliverHarvest(bot) {
   }
 
   const target = player.position.floored();
-  if (!hasPathTo(bot, target)) {
+  if (!await hasPathTo(bot, target, FARM)) {
     bot.chat(`Ik kan niet bij ${player.username} komen om af te geven!`);
     Logger.warn(`Levering afgebroken: geen pad naar ${player.username}`);
     return false;
@@ -653,7 +649,7 @@ async function harvestPass(bot, tasks, shouldStop, stats) {
     if (!block || block.name !== task.expect) continue;
 
     if (distanceTo(bot, task.pos) > FARM.reachDistance) {
-      if (!hasPathTo(bot, task.pos)) {
+      if (!await hasPathTo(bot, task.pos, FARM)) {
         Logger.debug(`Geen pad naar ${task.expect} op ${task.pos}, overgeslagen`);
         result.skipped++;
         continue;

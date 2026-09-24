@@ -29,7 +29,7 @@ const { breedOnce } = require('./breeding');
 const { sortItems, stopSorting } = require('./sorting');
 const { tradeCrops, stopTrading } = require('./trading');
 const { fishForItems, stopFishing } = require('./fishing');
-const { fetchItem, giveItem, stopGiving, whereIs, refreshIndex, stopFetching } = require('./courier');
+const { fetchItem, giveItem, stopGiving, whereIs, refreshIndex, forgetIndex, stopFetching } = require('./courier');
 const { resupplyTools, craftItem, stopSmithing } = require('./toolsmith');
 
 // Nederlandse windrichtingen mogen ook; intern blijft alles Engels omdat DIRECTIONS dat is.
@@ -228,6 +228,7 @@ function handleCommand(bot, username, message) {
     '!vis': () => fishForItems(bot),
     '!stopvis': () => stopFishing(bot),
     '!index': () => refreshIndex(bot),
+    '!vergeet': () => forgetIndex(bot),
     '!stophaal': () => stopFetching(bot),
     '!stopgeven': () => stopGiving(bot),
     '!gereedschap': () => resupplyTools(bot),
@@ -244,7 +245,7 @@ function handleCommand(bot, username, message) {
       bot.chat('Sorteren: !sort | !sort x y z (invoerkist) | !stopsort');
       bot.chat('Handelen: !trade | !trade kist x y z hal x y z [kluis x y z] | !stoptrade');
       bot.chat('Vissen: !vis | !vis 20 (aantal worpen) | !stopvis');
-      bot.chat('Koerier: !haal 64 cobblestone | !haal diamond | !waar ijzer | !index | !stophaal');
+      bot.chat('Koerier: !haal 64 cobblestone | !haal diamond | !waar ijzer | !index | !vergeet (lijst wissen) | !stophaal');
       bot.chat('  iets van haarzelf: !geef pickaxe | !geef 32 cobblestone (uit haar eigen inventaris) | !stopgeven');
       bot.chat('Smid: !gereedschap (aanvullen+repareren) | !maak diamond_pickaxe | !maak 8 torch');
     },

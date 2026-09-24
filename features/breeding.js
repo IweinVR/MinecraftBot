@@ -19,7 +19,7 @@
 const { goals } = require('mineflayer-pathfinder');
 const { CONFIG } = require('../config');
 const botState = require('../state');
-const { Logger, setMovements, withTimeout } = require('../utils');
+const { Logger, setMovements, withTimeout, hasPathTo } = require('../utils');
 const { SEED_ITEMS, PROTECTED_BLOCKS } = require('../data/crops');
 
 const BREED = CONFIG.breeding;
@@ -253,12 +253,6 @@ function breedMovements(bot) {
   });
 }
 
-function hasPathTo(bot, pos) {
-  const goal = new goals.GoalNear(pos.x, pos.y, pos.z, BREED.approachRange);
-  const result = bot.pathfinder.getPathTo(bot.pathfinder.movements, goal, BREED.pathCheckTimeout);
-  return !!result && result.status === 'success';
-}
-
 /**
  * Loopt naar een dier tot het binnen armbereik staat.
  *
@@ -275,7 +269,7 @@ async function approachAnimal(bot, id, shouldStop) {
     if (distanceToEntity(bot, live) <= BREED.reachDistance) return true;
 
     const target = live.position.floored();
-    if (!hasPathTo(bot, target)) {
+    if (!await hasPathTo(bot, target, BREED)) {
       Logger.debug(`Geen pad naar ${live.name} op ${target.x} ${target.y} ${target.z}`);
       return false;
     }

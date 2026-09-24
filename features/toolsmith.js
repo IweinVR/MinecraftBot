@@ -30,8 +30,8 @@
 const { goals } = require('mineflayer-pathfinder');
 const { CONFIG } = require('../config');
 const botState = require('../state');
-const { Logger, setMovements, withTimeout, findNearestBlock } = require('../utils');
-const { closeWindow, equipNonPlaceable, hasPathTo, sleep } = require('../lib/containers');
+const { Logger, setMovements, withTimeout, findNearestBlock, hasPathTo } = require('../utils');
+const { closeWindow, equipNonPlaceable, sleep } = require('../lib/containers');
 const storage = require('../lib/storage');
 
 const SMID = CONFIG.toolsmith;
@@ -236,7 +236,7 @@ async function goToBlock(bot, namen, shouldStop, label) {
   if (!blok) return null;
 
   if (bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5)) > SMID.reachDistance) {
-    if (!hasPathTo(bot, pos, SMID)) {
+    if (!await hasPathTo(bot, pos, SMID)) {
       Logger.debug(`Geen pad naar de ${label}`);
       return null;
     }
