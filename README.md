@@ -302,11 +302,11 @@ Mineflayer-pathfinder opent hekken (*fence gates*) automatisch om erdoorheen te 
 
 ### ⬆️ Vastlopers overspringen (`watchers/jump.js`)
 
-Mineflayer-pathfinder beslist per tick of hij mag springen door de sprong eerst te *simuleren*. Die simulatie krijgt 20 ticks en eist dat de bot tot op 0,35 blok bij het volgende punt komt — dus bijna tot het midden van het blok. Staat de bot al plat tegen het blok aan, dan is zijn snelheid nul (de botsing heeft die weggepoetst) en versnelt hij in de lucht alleen nog heel traag: hij komt in de simulatie wél bovenop het blok, maar niet ver genoeg naar binnen. Alle spring-checks geven dan false, en in dat geval zet de pathfinder zelfs `forward` uit: de bot blijft stokstijf tegen het blok staan, geeft zichzelf elke 3,5 seconde een nieuwe padberekening en loopt weer precies zo klem. Een trap lukt wél, want daar is elke stap maar een halve blok en stapt hij er gewoon overheen.
+Een vangnet voor als de bot ondanks alles tegen een blok blijft hangen. De echte oorzaak van het vastlopen bij één blok omhoog zat niet in de pathfinder maar in wat de bot naar de server stuurt — zie *Bewegingspakketten* hieronder. Offline nagespeeld met dezelfde pathfinder en physics springt de bot gewoon op een blok, ook als hij er plat en zonder vaart tegenaan staat.
 
 **Werking**
 * De watcher meet of de bot *vooruitkomt*, niet of hij stilstaat: blijft hij een seconde lang binnen 0,8 blok van waar hij was terwijl hij ergens heen wil, dan zit hij vast. Tegen een blok aan staat de bot namelijk te schuifelen, en een "staat hij stil"-check gaat daar nooit van af.
-* Is er in de looprichting een blok waar hij bovenop past (blok op voethoogte, twee blokken lucht erboven en boven zichzelf), dan neemt de watcher het over: eerst een stapje achteruit voor de aanloop, dan vooruit met een korte druk op de spronktoets. Zonder aanloop komt hij wel omhoog maar niet vooruit — de botsing zet zijn horizontale snelheid elke tick weer op nul.
+* Is er in de looprichting een blok waar hij bovenop past (blok op voethoogte, twee blokken lucht erboven en boven zichzelf), dan neemt de watcher het over: eerst een stapje achteruit voor de aanloop, dan vooruit met een korte druk op de spronktoets.
 * De sprong wordt zo gewoon mogelijk gehouden: alleen vooruit, en de spronktoets maar 0,2 seconde ingedrukt. Sprint erbij gaf een lunge op het moment van afzetten die de server niet per se meerekent, en de spronktoets vasthouden liet de bot bij elke landing meteen opnieuw springen — allebei leverden een stuiterende of in de lucht hangende bot op in plaats van eentje die netjes boven op het blok eindigt.
 * Hangt hij tóch in de lucht (niet op de grond, en toch niet vallen), dan is dat geen sprong meer maar een desync tussen bot en server. De watcher laat dan alles los in plaats van door te duwen, en zet het in de log.
 * Achteruit gaat alleen als daar ook echt vloer ligt, zodat hij niet achterwaarts een ravijn in stapt. Kan dat niet, dan springt hij vanaf de plek waar hij staat.
@@ -351,6 +351,21 @@ Er bestaat geen apart mineflayer-event voor "dit item is gebroken" — als iets 
 * Wisselen van gereedschap of het legen van de hand selecteert altijd een ánder hotbar-slot. Alleen bij echte slijtage blijft hetzelfde slot geselecteerd terwijl de inhoud verandert.
 * De watcher onthoudt daarom per `heldItemChanged`-event welk slot geselecteerd was en wat erin zat. Blijft het slot gelijk, en had het vorige item nog maar 1 duurzaamheidspunt over toen het plotseling verdween, dan meldt de bot dat gereedschap als kapot.
 * Bekende beperking: geef je met `!geef` precies het gereedschap weg dat op dat moment exact 1 duurzaamheidspunt over heeft, dan meldt de bot dat ook als "kapot" — dat verlaat de hand namelijk via hetzelfde slot. Zeldzaam genoeg (exacte timing + exacte duurzaamheid) om te laten zitten.
+
+### 📡 Bewegingspakketten (`lib/movementPackets.js`)
+
+Geen watcher in de `watchers/`-map, maar hij loopt net zo vanaf het spawnen mee. De bot praat Minecraft 26.1 (mineflayer ondersteunt 26.2 nog niet), de server draait 26.2, en ViaVersion/ViaBackwards vertalen daartussen. Op die server liep de pathfinder vast bij elke sprong van één blok omhoog en in elke bocht, terwijl vlakke grond, naar beneden en trappen wél gingen.
+
+De pathfinder zelf is daar niet de schuldige: offline nagespeeld met dezelfde pathfinder, physics en `setMovements()` haalt de bot al die gevallen gewoon. Het verschil tussen wat wel en niet lukte is dat de bot bij een sprong en in een bocht zijwaarts tegen een blok aan botst (2-3 ticks bij één blok omhoog, zo'n 8 in een bocht), en op vlakke grond, naar beneden en op een trap nooit. Juist die botsing gaf mineflayer 4.38 niet door. Samen met twee andere dingen die een echte 26.1-client wel stuurt:
+
+* **`hasHorizontalCollision`** in elk bewegingspakket: mineflayer stuurt altijd `false`. Nu gaat de echte waarde uit de physics mee.
+* **`player_input`** met de ingedrukte toetsen: mineflayer stuurt dat alleen bij sluipen, en dan met alléén shift erin, waardoor de server vooruit, springen en sprinten als losgelaten zag. Nu gaat elke verandering mee, net als bij een gewone client.
+* **`tick_end`** na elke tick: mineflayer stuurt het helemaal niet.
+
+**Werking**
+* Staat aan via `movementPackets.enabled` in `config.js`. Mocht een server er onverhoopt over struikelen, dan zet je het daar uit.
+* Zet de server de bot tóch terug naar een eerdere plek (rubberbanding), dan komt dat in de log, bijvoorbeeld: `Server zette de bot 0.42 blok terug (...): botste=ja, in de lucht=ja, pad actief=ja`. Zo zie je na één testrondje of het nog gebeurt, en in welke situatie. Uit te zetten met `movementPackets.logSetbacks`.
+* In een voertuig blijft hij van `player_input` af; daar stuurt mineflayer zelf mee.
 
 ## Datastructuren
 
@@ -422,7 +437,7 @@ Het project is robuust opgezet met externe afhankelijkheden en interne helper-sc
 *   **Helpers (`utils.js`)**: De gedeelde gereedschapskist. Hier staan onder andere `setMovements()` (de enige plek waar een `Movements`-object gemaakt wordt), `enforceNoBlockPlacing()` (die afdwingt dat géén enkele plugin de pathfinder blokken laat plaatsen), de item-zoekers en `abortAllTasks()`.
 *   **Watchers (`watchers/`)**: Zeven achtergrondprocessen die vanaf het spawnen meedraaien zonder commando — zie de sectie hierboven.
 *   **Data (`data/`)**: Statische registers los van de logica: het gewasregister (`crops.js`), het sorteerwoordenboek (`categories.js`) en het liedjesboek (`songs.js`).
-*   **Lib Directory**: Bevat gedeelde technische logica: `containers.js` (veilig kisten openen, sluiten en leegtrekken) en `storage.js` (de kistenindex die de koerier en de sorteerder gebruiken).
+*   **Lib Directory**: Bevat gedeelde technische logica: `containers.js` (veilig kisten openen, sluiten en leegtrekken), `storage.js` (de kistenindex die de koerier en de sorteerder gebruiken) en `movementPackets.js` (de bewegingspakketten die mineflayer bij 26.1 zelf niet goed stuurt, zie hierboven).
 *   **Node Modules**: De directe afhankelijkheden (zie `package.json`) zijn `mineflayer`, `mineflayer-pathfinder`, `mineflayer-auto-eat`, `mineflayer-collectblock`, `mineflayer-armor-manager`, `mineflayer-pvp` en `vec3`. Pakketten als `@nxg-org/mineflayer-util-plugin`, `protodef-validator` en `@azure/msal-node` (voor de Microsoft-authenticatie) zitten ook in `node_modules`, maar zijn transitieve afhankelijkheden van Mineflayer zelf — dit project roept ze niet rechtstreeks aan.
 
 ## 🚀 Installatie & Configuratie
@@ -452,6 +467,8 @@ server: {
   version: '26.1',
 },
 ```
+`version` blijft `'26.1'`, ook als de server nieuwer is: mineflayer ondersteunt 26.2 nog niet. Draait de server 26.2, dan heeft hij ViaVersion en ViaBackwards nodig om de 26.1-bot binnen te laten. Wat de bot daarbij extra meestuurt om goed te kunnen springen en de hoek om te gaan, staat onder *Bewegingspakketten* (`lib/movementPackets.js`).
+
 Pas `host` en `port` aan naar het adres van jouw Minecraft-server. Laat `auth: 'microsoft'` staan als je met een Microsoft-account inlogt; zet dit op `'offline'` voor een offline-mode/cracked server. Alle overige gedragsinstellingen (zoektstralen, timeouts, drempels per feature) staan verderop in datzelfde bestand.
 
 ### Stap 4: De bot starten

@@ -84,6 +84,13 @@ const CONFIG = {
     inventoryFullThreshold: 1,
     torchPlaceInterval: 8,
   },
+  // Zie lib/movementPackets.js: wat een echte 26.1-client bij het bewegen meestuurt en mineflayer
+  // niet (botsingsvlag, ingedrukte toetsen, tick_end). Zonder dat liep de bot op de 26.2-server
+  // vast zodra hij tegen een blok aan botste: bij elke sprong van één blok en in elke bocht.
+  movementPackets: {
+    enabled: true,
+    logSetbacks: true,     // meldt in de log als de server de bot terugzet (rubberbanding)
+  },
   pathfinding: {
     thinkTimeout: 20000,   // standaard 5000: te krap, gaf "Took to long to decide path"
     tickTimeout: 40,

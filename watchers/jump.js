@@ -1,30 +1,25 @@
 /**
- * Extra sprong wanneer de bot tegen een blok blijft hangen.
+ * Extra sprong wanneer de bot tegen een blok blijft hangen. Een vangnet, niet de oplossing.
  *
- * mineflayer-pathfinder beslist niet op het pad maar per tick of hij mag springen, en dat doet
- * hij door de sprong eerst te SIMULEREN (lib/physics.js: canStraightLine / canSprintJump /
- * canWalkJump). Die simulatie krijgt 20 ticks de tijd en eist dat de bot het volgende punt tot
- * op 0,35 blok nadert, dus tot bijna precies het midden van het blok. Staat de bot al plat tegen
- * het blok aan, dan is zijn snelheid nul (de botsing heeft vx/vz weggepoetst) en versnelt hij in
- * de lucht alleen nog met airborneAcceleration. Hij komt in die simulatie wel boven op het blok,
- * maar niet ver genoeg naar binnen, en dus geven alle drie de checks false. Daarna zet index.js
- * in zijn laatste tak zelfs forward uit: de bot blijft stokstijf staan, geeft zichzelf elke
- * 3,5 seconde een resetPath, en rekent exact hetzelfde pad opnieuw uit.
+ * Hier stond eerst dat de springsimulatie van mineflayer-pathfinder (lib/physics.js:
+ * canWalkJump / canSprintJump) faalt zodra de bot plat en zonder vaart tegen het blok staat.
+ * Dat klopt niet: offline nagespeeld met dezelfde pathfinder en physics springt hij vanuit
+ * precies die stand gewoon op het blok. Dat hij op de server toch bleef hangen, viel samen met
+ * de ticks waarin hij tegen het blok aan botst, en juist die botsing gaf mineflayer niet door
+ * aan de server. Dat regelt lib/movementPackets.js nu. Een trap ging altijd al goed omdat hij
+ * daar nooit zijwaarts botst: een halve trede neemt hij met stepHeight 0,6.
  *
- * Een trap lukt wel, want daar is elke stap maar een halve blok hoog: daar stapt de bot gewoon
- * overheen (stepHeight 0,6) zonder dat er iets gesprongen hoeft te worden.
- *
- * Deze watcher kijkt puur naar het resultaat: komt de bot niet vooruit terwijl hij ergens heen
- * wil, en ligt er een blok voor hem waar hij bovenop past? Dan neemt hij het even over.
+ * Deze watcher blijft staan voor als hij tóch vastloopt. Hij kijkt puur naar het resultaat: komt
+ * de bot niet vooruit terwijl hij ergens heen wil, en ligt er een blok voor hem waar hij bovenop
+ * past? Dan neemt hij het even over.
  *
  * Vier dingen die nodig bleken:
  *   1. Meten of hij VOORUIT komt, niet of hij stilstaat. Tussen twee padberekeningen door staat
  *      de bot te schuifelen tegen het blok, en dat zijn steeds nieuwe kleine beweginkjes: een
  *      "staat hij stil"-check gaat daardoor nooit af.
- *   2. Aanloop nemen. Vanuit stilstand tegen het blok aan springen helpt niet: de botsing zet de
- *      horizontale snelheid elke tick op nul zolang hij lager staat dan de bovenkant, dus komt
- *      hij boven het blok aan zonder vaart. Daarom eerst een halve stap achteruit, dan pas
- *      vooruit + sprong. Dat is precies het "met aanloop lukt het wel" uit de praktijk.
+ *   2. Aanloop nemen. Vanuit stilstand tegen het blok aan springen hielp op de server niet, met
+ *      eerst een halve stap achteruit en dan vooruit + sprong wel. Dat is het "met aanloop lukt
+ *      het wel" uit de praktijk.
  *   3. Zo gewoon mogelijk springen: de spronktoets kort indrukken en verder alleen vooruit.
  *      Sprint erbij gaf een lunge van 0,2 blok op het moment van afzetten die de server niet
  *      per se meerekent, en jump vasthouden laat de bot bij elke landing meteen opnieuw

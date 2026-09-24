@@ -8,7 +8,8 @@
  *   features/    één bestand per ding dat de bot kan: minen, boeren, fokken, sorteren,
  *                handelen, vissen, de koerier, vechten, chatten en de commando-afhandeling
  *   watchers/    lopen continu mee zonder commando: deuren openen, niet verdrinken
- *   lib/         gedeelde bouwstenen die geen feature zijn (vensters, de opslagindex)
+ *   lib/         gedeelde bouwstenen die geen feature zijn (vensters, de opslagindex, de
+ *                bewegingspakketten die mineflayer bij 26.1 zelf niet goed stuurt)
  *   data/        kale tabellen zonder logica: gewassen, sorteercategorieën, liedjes
  *
  * Drie patronen die in bijna elke feature terugkomen; ken je die, dan lees je de rest vlot:
@@ -49,6 +50,7 @@ const { startJumpWatcher } = require('./watchers/jump');
 const { startCreeperWatcher } = require('./watchers/creeper');
 const { startToolBreakWatcher } = require('./watchers/toolbreak');
 const { startMotivationWatcher } = require('./watchers/motivate'); // easter egg, zie het bestand zelf voor waarom dit niet in de README staat
+const { startMovementPackets } = require('./lib/movementPackets');
 
 // Een reactie of commando dat zijn eigen fout niet opvangt (bv. een vergeten .catch() op een
 // fire-and-forget async call) geeft normaal een unhandled rejection, en die killt in moderne
@@ -74,6 +76,9 @@ async function createBot() {
   startCreeperWatcher(bot);
   startToolBreakWatcher(bot);
   startMotivationWatcher(bot);
+  // Als laatste: stuurt per tick de toetsen door zoals de pathfinder en de sprong-watcher ze
+  // net gezet hebben, dus zijn physicsTick-handler moet ná die van hen komen.
+  startMovementPackets(bot);
 
   // mineflayer-auto-eat is ESM-only; dit project is CommonJS, dus het heeft een dynamic import nodig.
   // NOTE: bot.loadPlugin() *queuet* de plugin alleen tot mineflayers interne 'inject_allowed'-punt
