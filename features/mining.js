@@ -15,6 +15,7 @@
  *   - corridorCells() beweegt per stap één as, zodat er een trap ontstaat waar je door kunt
  *   - grind en zand vallen na het graven alsnog in de gang; die worden opnieuw weggehaald
  *   - lastMineData onthoudt bij welke cel hij was, zodat een respawn verdergaat i.p.v. opnieuw
+ *   - voorraadkisten gaan in een zelfgegraven nis in de wand, niet in de gang zelf
  */
 
 const { goals } = require('mineflayer-pathfinder');
@@ -22,6 +23,7 @@ const Vec3 = require('vec3');
 const { CONFIG, DIRECTIONS, SIDE_DIRECTIONS, CHEST_BLOCKS } = require('../config');
 const botState = require('../state');
 const { Logger, setMovements, findItem, findItemExact, isItemToKeep, findNearestBlock, placeBlockAllowed, abortable, withTimeout } = require('../utils');
+const { openContainerAt, closeWindow } = require('../lib/containers');
 
 const MINING = CONFIG.mining;
 
@@ -233,10 +235,17 @@ async function placeBlock(bot, itemNames, targetX, targetY, targetZ, directions 
   return false;
 }
 
-async function storeBlocksInChest(bot, x, y, z) {
+/**
+ * @param {object} [gang] de gang waarin we staan: {travel, breedte, hoogte, inCorridor,
+ *   shouldStop}. Is die bekend, dan graaft de bot voor een nieuwe kist eerst een nis in de
+ *   wand. Zonder die gegevens valt hij terug op het oude gedrag (tegen een zijvlak aan).
+ */
+async function storeBlocksInChest(bot, x, y, z, gang = null) {
+  const shouldStop = gang?.shouldStop ?? (() => false);
+
   try {
     Logger.debug(`Zoeken naar kist rond ${x} ${y} ${z}...`);
-    let chestPos = findNearestBlock(bot, CHEST_BLOCKS, 10);
+    let chestPos = findNearestBlock(bot, CHEST_BLOCKS, MINING.chestSearchRadius);
 
     if (!chestPos) {
       Logger.debug('Geen kist gevonden, probeer er een te plaatsen');
@@ -248,27 +257,37 @@ async function storeBlocksInChest(bot, x, y, z) {
         return false;
       }
 
-      const chestPlaced = await placeBlock(bot, CHEST_BLOCKS, x, y, z, SIDE_DIRECTIONS, true);
+      // Waarom niet gewoon op (x, y, z): dat is de cel waar de bot zélf in staat en die
+      // bovendien vaak nog dichtgemetseld is. Je kunt geen blok in jezelf of in steen
+      // plaatsen, dus dit mislukte in de praktijk vrijwel altijd.
+      const chestPlaced = gang
+        ? await placeChestInWall(bot, new Vec3(x, y, z), gang)
+        : await placeBlock(bot, CHEST_BLOCKS, x, y, z, SIDE_DIRECTIONS, true);
       if (!chestPlaced) {
         Logger.warn('Kon geen kist plaatsen - geen blok beschikbaar');
         return false;
       }
 
-      chestPos = findNearestBlock(bot, CHEST_BLOCKS, 10);
+      chestPos = findNearestBlock(bot, CHEST_BLOCKS, MINING.chestSearchRadius);
       if (!chestPos) {
         Logger.error('Kist geplaatst maar niet gevonden!');
         return false;
       }
     }
 
-    const chestBlock = bot.blockAt(chestPos);
-    if (!chestBlock) {
-      Logger.warn('Kist staat in een niet-geladen chunk');
+    // Via openContainerAt en niet via bot.openBlock(): de kist staat zelden binnen
+    // handbereik (hij mag tot chestSearchRadius blokken verderop staan), en dan stuurt de
+    // server geen windowOpen terug. Hier wordt er eerst naartoe gelopen, met een timeout,
+    // en wordt er niets plaatsbaars vastgehouden -- anders leest de server het openen bij
+    // een mislukking als een block_place en zet de bot midden in de gang een blok neer.
+    const chestWindow = await openContainerAt(bot, chestPos, shouldStop, {
+      ...MINING, allowed: CHEST_BLOCKS, label: 'kist',
+    });
+    if (!chestWindow) {
+      Logger.warn(`Kon de kist op ${chestPos.x} ${chestPos.y} ${chestPos.z} niet openen`);
       return false;
     }
-
     Logger.debug(`Kist geopend op ${chestPos.x} ${chestPos.y} ${chestPos.z}`);
-    const chestWindow = await bot.openBlock(chestBlock);
 
     try {
       const itemsToStore = bot.inventory.items().filter(item => !isItemToKeep(bot, item.name));
@@ -283,8 +302,9 @@ async function storeBlocksInChest(bot, x, y, z) {
       }
     } finally {
       // Zonder dit blijft het venster openstaan als een deposit hard faalt, en dan weigert
-      // de server elke volgende openBlock().
-      chestWindow.close();
+      // de server elke volgende openBlock(). Via closeWindow() wordt er ook echt gewacht
+      // tot de server het venster dicht heeft; window.close() zelf wacht nergens op.
+      await closeWindow(bot, chestWindow, MINING);
     }
 
     Logger.info('Blokken succesvol opgeslagen in kist');
@@ -373,6 +393,76 @@ function withinReach(bot, pos) {
   return eye.distanceTo(pos.offset(0.5, 0.5, 0.5)) <= 4.5;
 }
 
+/**
+ * De twee plekken naast de gang waar een kist zou kunnen staan: net buiten de breedte die
+ * crossSection() uitgraaft, links en rechts op vloerhoogte.
+ */
+function chestAlcoves(cell, travelDir, breedte) {
+  const perp = travelDir.x !== 0 ? new Vec3(0, 0, 1) : new Vec3(1, 0, 0);
+  const half = Math.floor(breedte / 2);
+  const rechts = breedte - half;   // eerste kolom voorbij de rechterrand
+  const links = -half - 1;         // en die voorbij de linkerrand
+  return [
+    cell.offset(perp.x * rechts, 0, perp.z * rechts),
+    cell.offset(perp.x * links, 0, perp.z * links),
+  ];
+}
+
+/**
+ * Zet een voorraadkist in een zelfgegraven nis naast de gang.
+ *
+ * Twee redenen om het zo te doen in plaats van de kist gewoon in de gang te zetten:
+ *
+ *  1. Plek. De oude aanpak mikte op de cel waar de bot zelf stond, en die was bovendien vaak
+ *     nog niet uitgegraven. In je eigen hitbox of in massief steen kun je niets plaatsen, dus
+ *     "Kon geen kist plaatsen" was eerder regel dan uitzondering. Een nis graven we zelf, dus
+ *     daar ís altijd ruimte.
+ *  2. Doorgang. De graaflus slaat kisten bewust over (anders sloopt hij zijn eigen voorraad),
+ *     dus een kist midden in een gang van één breed blijft staan en zet de gang dicht.
+ *
+ * @param {{travel: Vec3, breedte: number, inCorridor?: function, shouldStop?: function}} gang
+ */
+async function placeChestInWall(bot, cell, gang) {
+  const { travel, breedte = 1, inCorridor = null, shouldStop = () => false } = gang;
+  if (!findItemExact(bot, CHEST_BLOCKS)) return false;
+
+  for (const nis of chestAlcoves(cell, travel, breedte)) {
+    if (shouldStop()) return false;
+
+    const blok = bot.blockAt(nis);
+    if (!blok) continue;
+    if (blok.name.includes('chest')) return true;                  // hier staat er al een
+    // Bij een bocht ligt de zijkant van deze cel soms precies op het pad van het volgende
+    // stuk gang. Daar een kist neerzetten metselt de bot zijn eigen route dicht.
+    if (inCorridor && inCorridor(nis)) continue;
+    if (LIQUIDS.some(n => blok.name.includes(n))) continue;        // geen water/lava openbreken
+    if (lavaNearby(bot, nis)) continue;
+
+    const alVrij = blok.name === 'air' || blok.name === 'cave_air';
+    if (!alVrij) {
+      if (UNBREAKABLE.some(n => blok.name.includes(n))) continue;
+      if (!withinReach(bot, nis)) continue;
+      await equipBestTool(bot, blok.name);
+      if (!await safeDig(bot, blok, 15000, shouldStop)) continue;
+      // Zand of grind van boven valt zo de verse nis in, en dan staat de kist er niet.
+      await digFallingBlocks(bot, nis, shouldStop);
+    }
+
+    // De vloer onder de nis eerst: dat vlak is er altijd. Lukt dat niet (nis boven een
+    // grot), dan alsnog tegen een van de wanden.
+    const geplaatst = await placeBlock(
+      bot, CHEST_BLOCKS, nis.x, nis.y, nis.z, [{ x: 0, y: -1, z: 0 }, ...SIDE_DIRECTIONS], true
+    );
+    if (geplaatst) {
+      Logger.info(`Voorraadkist geplaatst op ${nis.x} ${nis.y} ${nis.z}`);
+      return true;
+    }
+  }
+
+  Logger.debug(`Geen nis gevonden voor een kist bij ${cell}`);
+  return false;
+}
+
 async function mineTunnel(bot, startX, startY, startZ, richting, diepte, hoogte = 2, breedte = 1) {
   const dir = DIRECTIONS[richting];
   if (!dir) {
@@ -440,6 +530,18 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
   let cellIndex = resumeFrom;
   const startTime = Date.now();
 
+  // Hoeveel fakkels er al staan; elke zoveelste krijgt een kist in de wand.
+  let torches = 0;
+  let kistenOp = false;
+
+  // Ligt dit punt in de gang zelf (inclusief de breedte en hoogte)? Conservatief: een cel
+  // telt mee tot 'half' blokken opzij, ongeacht de looprichting daar. Gebruikt om te
+  // voorkomen dat een kist in een bocht op het pad van het volgende stuk belandt.
+  const half = Math.floor(breedte / 2);
+  const inCorridor = (pos) => cells.some(c =>
+    Math.abs(pos.x - c.x) <= half && Math.abs(pos.z - c.z) <= half
+    && pos.y >= c.y && pos.y < c.y + hoogte);
+
   // Naar de ingang lopen mag mét graven: daar is nog geen gang om doorheen te lopen.
   setMovements(bot, { canDig: true, canPlace: false });
   try {
@@ -479,7 +581,8 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
       const freeSlots = bot.inventory.emptySlotCount();
       if (freeSlots <= CONFIG.physics.inventoryFullThreshold) {
         Logger.debug('Inventaris vol, opslaan...');
-        await storeBlocksInChest(bot, cell.x, cell.y, cell.z);
+        await storeBlocksInChest(bot, cell.x, cell.y, cell.z,
+          { travel, breedte, hoogte, inCorridor, shouldStop });
         if (shouldStop()) break;
         setMovements(bot, { canDig: false, canPlace: false });
       }
@@ -549,6 +652,24 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
       // liep uit de pas zodra er grind bij kwam of er blokken werden overgeslagen.
       if (cellIndex % CONFIG.physics.torchPlaceInterval === 0) {
         await placeBlock(bot, 'torch', cell.x, cell.y, cell.z, TORCH_DIRECTIONS);
+        torches++;
+
+        // Om de zoveel fakkels een kist in de wand, zodat er altijd een binnen tien blokken
+        // staat als de inventaris volloopt. Vanaf de TWEEDE fakkel: bij de eerste staat de
+        // bot nog in de ingang, waar de gang vaak nog niet vrij is.
+        const perKist = CONFIG.physics.chestPerTorches;
+        if (perKist > 0 && torches % perKist === 0 && !shouldStop()) {
+          if (!findItemExact(bot, CHEST_BLOCKS)) {
+            // Eén keer melden, niet bij elke fakkel opnieuw.
+            if (!kistenOp) {
+              kistenOp = true;
+              bot.chat('Ik heb geen kisten meer om onderweg neer te zetten.');
+            }
+          } else {
+            kistenOp = false;
+            await placeChestInWall(bot, cell, { travel, breedte, inCorridor, shouldStop });
+          }
+        }
       }
 
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -603,4 +724,4 @@ async function restoreGoal(bot) {
   }
 }
 
-module.exports = { mineTunnel, mineCorridor, corridorCells, crossSection, storeBlocksInChest, restoreGoal, safeDig };
+module.exports = { mineTunnel, mineCorridor, corridorCells, crossSection, chestAlcoves, placeChestInWall, storeBlocksInChest, restoreGoal, safeDig };

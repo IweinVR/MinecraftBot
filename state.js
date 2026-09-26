@@ -47,6 +47,12 @@ const botState = {
   isSorting: false,
   stopSorting: false,
   sortSession: 0,
+  // Los van het sorteren: !leeg brengt alleen de eigen inventaris naar de invoerkist en
+  // roept daarna sortItems() aan. Twee aparte vlaggen dus, anders zou die aanroep op zijn
+  // eigen "ik ben al aan het sorteren" stuklopen.
+  isDumping: false,
+  stopDumping: false,
+  dumpSession: 0,
   isTrading: false,
   stopTrading: false,
   tradeSession: 0,

@@ -26,7 +26,7 @@ const { setBedSpawn, killBot } = require('./combat');
 const { farmCrops, stopFarming } = require('./farming');
 const { findCropGroup, CROP_LABELS } = require('../data/crops');
 const { breedOnce } = require('./breeding');
-const { sortItems, stopSorting } = require('./sorting');
+const { sortItems, stopSorting, dumpInventory, stopDumping } = require('./sorting');
 const { tradeCrops, stopTrading } = require('./trading');
 const { fishForItems, stopFishing } = require('./fishing');
 const { fetchItem, giveItem, stopGiving, whereIs, refreshIndex, forgetIndex, stopFetching } = require('./courier');
@@ -207,6 +207,9 @@ function handleCommand(bot, username, message) {
       bot.pathfinder.stop();
       bot.clearControlStates();
 
+      // Wat een taak te melden heeft (de vangst van het vissen bijvoorbeeld) meldt de taak
+      // zelf, zodra zijn lus de stopvlag ziet -- binnen een tiende seconde. Hier dus niets
+      // over zeggen: alleen die lus weet wat er in deze sessie gebeurd is.
       bot.chat('Oke, ik stop METEEN.');
     },
 
@@ -223,6 +226,10 @@ function handleCommand(bot, username, message) {
     '!breed': () => breedOnce(bot),
     '!sort': () => sortItems(bot),
     '!stopsort': () => stopSorting(bot),
+    // !leeg is de tegenhanger van !sort: niet de kist maar de eigen tas gaat leeg.
+    '!leeg': () => dumpInventory(bot),
+    '!dump': () => dumpInventory(bot),
+    '!stopleeg': () => stopDumping(bot),
     '!trade': () => tradeCrops(bot),
     '!stoptrade': () => stopTrading(bot),
     '!vis': () => fishForItems(bot),
@@ -243,6 +250,7 @@ function handleCommand(bot, username, message) {
       bot.chat('  één gewas: !farm tarwe | !farm wortels | !farm pompoen | !farm suikerriet (hij maakt dat gewas eerst helemaal af)');
       bot.chat('Fokken: !breed (voert koeien, schapen, varkens, kippen... met het juiste voer)');
       bot.chat('Sorteren: !sort | !sort x y z (invoerkist) | !stopsort');
+      bot.chat('Tas legen: !leeg | !leeg x y z (kist) | !stopleeg — alles behalve gereedschap, harnas, eten, fakkels en kisten');
       bot.chat('Handelen: !trade | !trade kist x y z hal x y z [kluis x y z] | !stoptrade');
       bot.chat('Vissen: !vis | !vis 20 (aantal worpen) | !stopvis');
       bot.chat('Koerier: !haal 64 cobblestone | !haal diamond | !waar ijzer | !index | !vergeet (lijst wissen) | !stophaal');
@@ -310,6 +318,17 @@ function handleCommand(bot, username, message) {
     sortItems(bot, { x, y, z }).catch(err => {
       Logger.error('Sorteerfout', err);
       bot.chat('Er ging iets mis met sorteren.');
+    });
+    return;
+  }
+
+  // !leeg x y z -> in die kist storten i.p.v. in de dichtstbijzijnde koperen kist
+  match = message.match(/^!(?:leeg|dump) (-?\d+) (-?\d+) (-?\d+)$/);
+  if (match) {
+    const [, x, y, z] = match.map(Number);
+    dumpInventory(bot, { x, y, z }).catch(err => {
+      Logger.error('Fout bij het legen', err);
+      bot.chat('Er ging iets mis met het legen van mijn tas.');
     });
     return;
   }

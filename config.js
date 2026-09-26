@@ -83,6 +83,9 @@ const CONFIG = {
     bucketActivateDelay: 1500,
     inventoryFullThreshold: 1,
     torchPlaceInterval: 8,
+    // Bij elke zoveelste fakkel gaat er ook een voorraadkist in de wand. 2 = om en om, dus
+    // vanaf de TWEEDE fakkel: bij de eerste staat de bot nog in de ingang van de gang.
+    chestPerTorches: 2,
   },
   // Zie lib/movementPackets.js: wat een echte 26.1-client bij het bewegen meestuurt en mineflayer
   // niet (botsingsvlag, ingedrukte toetsen, tick_end). Zonder dat liep de bot op de 26.2-server
@@ -132,6 +135,16 @@ const CONFIG = {
     // In een brede/hoge gang valt niet elk blok binnen Minecrafts oprapradius van het looppad.
     // Na elke laag kort om zich heen kijken vangt die achterblijvers op.
     dropSweepRadius: 4,
+    // Opslaan in een kist onderweg. Dezelfde velden als bij het sorteren, want het openen
+    // loopt via dezelfde lib/containers.js.
+    chestSearchRadius: 10,   // zo ver om zich heen kijken naar een bestaande kist
+    reachDistance: 4,        // binnen deze afstand kan hij de kist al openen
+    approachRange: 2,
+    pathCheckTimeout: 500,
+    approachTimeout: 15000,
+    openTimeout: 5000,       // een geblokkeerde kist stuurt nooit een windowOpen
+    closeTimeout: 2000,
+    settleDelay: 250,
     dropSweepTimeout: 4000,
     dropPickupDelay: 250,    // wachten tot de server het oprapen doorgeeft
   },
@@ -179,7 +192,10 @@ const CONFIG = {
     closeTimeout: 2000,
     settleDelay: 250,        // rust na het sluiten, tegen desyncs bij de volgende kist
     keepFood: 16,            // zoveel eten blijft altijd in de inventaris
+    keepTorches: 64,         // en zoveel fakkels: daarmee verlicht hij zijn tunnels
+    keepChests: 64,          // en zoveel kisten: die zet hij onderweg in de tunnelwand
     minFreeSlots: 1,         // stop met ophalen als er nog zoveel slots vrij zijn
+    sortAfterDump: true,     // na !leeg meteen een sorteerronde draaien
   },
   trading: {
     chestRadius: 24,         // waar de voorraad- en kluiskist gezocht worden

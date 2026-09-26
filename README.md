@@ -88,7 +88,7 @@ Alle commando's vereisen een uitroepteken (`!`) vooraf. Een kleine greep uit de 
 * **Tunnels & Delven:** `!tunnel naar mij`, `!tunnel noord 20` of `!collect <blok> <aantal>`. Voor tunnels kun je optioneel breedte en hoogte toevoegen (bijv. `!tunnel noord 20 3 3`).
 * **Noodrem:** Typ `!stop` in de chat. Dit is de ultieme noodrem die direct álle huidige acties van de bot afbreekt.
 * **Informatie:** `!help` toont een lijst met alle commando's. `!pos` rapporteert de huidige locatie en inventarisstatus in de chat.
-* **Gedelegeerde acties:** Alle functies uit andere modules activeer je hier (bijv. `!farm`, `!sort`, `!vis`, `!trade`, `!maak <item>`, `!haal <item>`, `!geef <item>`). Veel daarvan nemen een aantal of een naam als argument: `!farm tarwe` (alleen dat gewas), `!vis 20` (aantal worpen), `!maak 8 torch`, `!haal 64 cobblestone` (uit de opslag) en `!geef pickaxe` (uit haar eigen inventaris).
+* **Gedelegeerde acties:** Alle functies uit andere modules activeer je hier (bijv. `!farm`, `!sort`, `!leeg`, `!vis`, `!trade`, `!maak <item>`, `!haal <item>`, `!geef <item>`). Veel daarvan nemen een aantal of een naam als argument: `!farm tarwe` (alleen dat gewas), `!vis 20` (aantal worpen), `!maak 8 torch`, `!haal 64 cobblestone` (uit de opslag) en `!geef pickaxe` (uit haar eigen inventaris).
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Crash Preventie (Prototype-check):** Bij het uitlezen van argumentloze commando's controleert de code veilig via `hasOwnProperty`. Dit voorkomt dat een grapjas de bot laat crashen door JavaScript-systeemwoorden zoals `!__proto__` of `!constructor` in de chat te typen.
@@ -164,11 +164,12 @@ Deze module maakt van de bot een geduldige visser. Omdat de standaard vis-functi
 **Hoe te gebruiken in-game**
 * **Starten:** Typ `!vis` in de chat. De bot zoekt water, werpt zijn hengel uit en stopt pas als zijn inventaris vol is of de hengel bijna breekt.
 * **Beperkt vissen:** Typ `!vis <aantal>` (bijv. `!vis 20`) om de bot na een specifiek aantal worpen te laten stoppen.
-* **Stoppen:** Typ `!stopvis` (of `!stop`) om de vis-sessie direct te beëindigen.
+* **Stoppen:** Typ `!stopvis` (of `!stop`) om de vis-sessie direct te beëindigen. De bot haalt zijn lijn binnen en vertelt meteen in de chat wat hij deze sessie gevangen heeft, uitgesplitst per soort (`Gevangen: 14x cod, 3x salmon, 1x bone`). Heeft hij de vangst nog niet weggebracht, dan zegt hij dat er ook bij; met `!leeg` gaat die alsnog de invoerkist in.
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Anti-Crash & Timeouts:** De standaard `bot.fish()` functie heeft geen timeout en crasht de bot als een worp wordt afgebroken. Deze module wikkelt de worp in een custom timeout en vangt zogenaamde *unhandled rejections* netjes op. Als de dobber op het gras belandt of een netwerkpakketje mist, loopt de bot dus niet meer vast.
 * **Slimme Oever-detectie (`findFishingSpot`):** De bot vist niet *in* het water (waardoor hij zou wegdrijven door stroming), maar zoekt een solide blok op de oever met minimaal twee blokken lucht erboven (ruimte om te staan). Daarnaast berekent hij een mikpunt vérder het water op, zodat de dobber niet op de kant stuitert.
+* **Direct Stoppen (`abortable` + `reelIn`):** Een worp kan tot 40 seconden op een beet wachten. Zonder extra logica hoorde de bot een `!stop` pas ná die wachttijd, en dan leek het alsof het commando niets deed. De worp wordt nu elke tiende seconde tegen de stop-vlag gehouden, en bij een stop (of een timeout) klikt de bot zijn dobber netjes binnen. Dat laatste is meer dan cosmetisch: laat je de lijn liggen, dan *haalt* de eerstvolgende worp hem alleen maar binnen in plaats van opnieuw uit te werpen, waardoor elke tweede worp een lege klik was. Is de dobber al vernietigd (zoals bij auto-eat), dan klikt de bot juist níét, want dan zou hij een nieuwe lijn uitwerpen waar niemand op wacht.
 * **Auto-Eat Herstel:** Als de bot honger krijgt, wisselt de *auto-eat* functie de hengel om voor voedsel. Dit annuleert de worp. De vis-module herkent dit, pakt daarna opnieuw de hengel vast en werpt gewoon opnieuw in.
 * **Hengel Behoud (`bestRod`):** Vóór elke worp wordt de durability gecheckt. De bot stopt met vissen zodra de hengel bijna kapot is (`minRodDurability`), zodat je betoverde hengels nooit per ongeluk breken.
 * **Automatische Proviand:** Bij het afleveren in de kist dumpt de bot niet klakkeloos alles. Eetbare vissen worden tot een bepaalde drempel (`keepFood`) in de inventaris gehouden als proviand voor de bot zelf.
@@ -197,7 +198,11 @@ Deze module is het brein achter het gestructureerd uitgraven van tunnels en gang
 * **Lava Ontwijking (`lavaNearby`):** Voordat een blok gebroken wordt, scant de bot de 6 direct omliggende blokken. Ligt er lava tegenaan? Dan wordt het blok overgeslagen (`Lava in de weg, ik graaf er omheen!`), zodat de tunnel niet plotseling volstroomt.
 * **Water en lava overslaan als graafdoel:** Minecraft-data noemt water zelfs `diggable: true`, maar door zijn hardheid (100) rekent `bot.dig()` er een graaftijd van tientallen seconden voor uit in plaats van de `Infinity` die een écht onbreekbaar blok krijgt. Zonder deze check bleef de bot dus een volle `safeDig`-timeout stilstaan te "graven" aan water (of aan lava die toevallig recht in het pad ligt) zonder dat er ooit iets kapotging. Beide worden nu net als lucht meteen overgeslagen: lopen of zwemmen erdoorheen kan gewoon.
 * **Drops per laag opruimen (`sweepMiningDrops`):** In een brede of hoge gang valt niet elk gebroken blok binnen Minecrafts oprapradius van het looppad. Na elke laag kijkt de bot daarom kort om zich heen en loopt hij naar wat is blijven liggen, in plaats van dat pas aan het einde van de hele tunnel te ontdekken.
-* **Auto-Opslag (`storeBlocksInChest`):** Raakt de inventaris vol? De bot zoekt een kist (of plaatst er desnoods zelf een uit zijn inventaris) en slaat alle onnodige blokken op voordat hij verder werkt.
+* **Voorraadkisten onderweg (`placeChestInWall`):** Om de zoveel fakkels (`chestPerTorches`, standaard elke tweede — dus vanaf fakkel twee, niet bij de eerste) graaft de bot een nis van één blok in de wand en zet daar een kist in. Zo staat er altijd een kist binnen tien blokken zodra zijn tas volloopt.
+  * *Waarom in de wand:* een kist in de gang zelf blokkeert hem. De graaflus slaat kisten bewust over (anders sloopt hij zijn eigen voorraad), dus zo'n kist blijft staan en de bot kan er in een gang van één breed niet meer langs. In een bocht wordt bovendien gecontroleerd of de nis niet op het pad van het volgende stuk gang ligt; dan kiest hij de andere wand.
+  * *Waarom vooraf:* de oude aanpak plaatste pas een kist als de inventaris al vol was, en mikte dan op de cel waar de bot zelf stond — een cel die vaak ook nog dichtgemetseld was. In je eigen hitbox of in massief steen kun je niets plaatsen, dus dat mislukte vrijwel altijd. Een nis graaft hij zelf, dus daar is per definitie plek.
+  * Heeft hij geen kisten meer bij zich, dan zegt hij dat één keer in de chat in plaats van het bij elke fakkel te herhalen.
+* **Auto-Opslag (`storeBlocksInChest`):** Raakt de inventaris vol? De bot zoekt een kist in de buurt (meestal een van zijn eigen wandkisten), en anders graaft hij ter plekke een nis en zet er een neer. Daarna slaat hij alle onnodige blokken op en werkt hij verder.
 * **Slim Hervatten (`resumeFrom`):** Als de bot doodgaat, vlucht of herstart, onthoudt hij exact bij welke cel hij was gebleven (`lastMineData`). Hierdoor hoeft hij niet minutenlang in het niets te hakken om een al uitgegraven tunnel opnieuw te verwerken.
 
 **Stap-voor-stap Werking**
@@ -205,7 +210,7 @@ Deze module is het brein achter het gestructureerd uitgraven van tunnels en gang
 2. **Gereedschap Kiezen (`equipBestTool`):** Kiest dynamisch het perfecte gereedschap uit de `TOOL_PREFERENCES` (bijl voor hout, schep voor zand, houweel voor steen) om de duurzaamheid en snelheid te optimaliseren.
 3. **Breken (`safeDig`):** Het blok wordt gebroken met een strakke timeout (15 seconden). Als de server lagt of het blok niet breekt, blijft de bot niet voor eeuwig hangen.
 4. **Opruimen (`sweepMiningDrops`):** Na de kruisdoorsnede van een laag kijkt de bot om zich heen naar drops binnen een paar blokken en raapt ze op.
-5. **Verlichting (`placeBlock`):** Op vaste intervallen (`torchPlaceInterval`) plaatst de bot automatisch fakkels. Hij probeert deze bij voorkeur op de vloer te plaatsen in plaats van aan de muren.
+5. **Verlichting en voorraad (`placeBlock`):** Op vaste intervallen (`torchPlaceInterval`) plaatst de bot automatisch fakkels, bij voorkeur op de vloer in plaats van aan de muren. Bij elke tweede fakkel (`chestPerTorches`) graaft hij er een nis naast en zet daar een voorraadkist in.
 
 
 ### 🗄️ Inventaris & Sorteersysteem (`features/sorting.js`)
@@ -216,10 +221,14 @@ Deze module transformeert de bot in een volautomatisch magazijnsysteem. De bot l
 * **Automatisch Sorteren:** Typ `!sort` in de chat. De bot zoekt automatisch de dichtstbijzijnde koperen kist (of gewone kist) als invoerbak, haalt deze leeg en begint met sorteren.
 * **Specifieke Kist Sorteren:** Typ `!sort <x> <y> <z>` om zelf de coördinaten van de invoerkist aan te wijzen.
 * **Stoppen:** Typ `!stopsort` (of `!stop`) om de sorteeractie direct af te breken.
+* **Tas legen (`!leeg`):** Typ `!leeg` (of `!dump`) om de bot zijn héle inventaris in de invoerkist te laten storten, op zijn eigen uitrusting na. Handig na een vis- of mijnsessie die je halverwege hebt afgebroken. Met `!leeg <x> <y> <z>` wijs je zelf een kist aan, en `!stopleeg` breekt het af.
+  * Wat hij houdt is exact wat het sorteersysteem altijd al voor hem reserveert (`protectionQuota`): zijn emmers, schild, elytra en totems, van elk soort gereedschap en van elk harnasdeel het beste exemplaar, plus een werkvoorraad van `keepFood` eten (16), `keepTorches` fakkels (1 stack) en `keepChests` kisten (1 stack). Al het andere gaat de kist in.
+  * Die fakkels en kisten horen bij het quotum zelf en niet alleen bij `!leeg`. Dat moet ook: `!leeg` draait er direct een sorteerronde achteraan, en die zou ze er anders meteen weer uit halen. Zo houdt de bot na élke opruimactie genoeg bij zich om verder te kunnen minen.
+  * Staat `sortAfterDump` aan (standaard), dan draait hij er direct een sorteerronde achteraan, zodat de spullen niet in de invoerbak blijven liggen. Wat er niet meer in de kist paste, houdt hij bij zich en meldt hij in de chat.
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Twee-rondes Algoritme:** Dit is de kern van de module. Ronde 1 loopt langs alle kisten en legt alléén items weg die *exact* overeenkomen (steen bij steen). Pas in Ronde 2 wordt de rest op categorie verdeeld. Dit voorkomt dat een gouden zwaard in de eerste de beste kist met een stenen zwaard belandt, terwijl er verderop in het pakhuis een specifieke gouden-zwaarden-kist staat.
-* **Bevroren Quotum (`protectionQuota`):** De bot beschermt zijn eigen uitrusting (het beste gereedschap, pantser en wat voedsel) door een quotum vast te stellen. Dit quotum wordt één keer aan het begin van de sessie berekend en 'bevroren'. Dit voorkomt dat de bot spullen uit de invoerkist opeens als zijn eigen eigendom gaat beschouwen en weigert weg te leggen.
+* **Bevroren Quotum (`protectionQuota`):** De bot beschermt zijn eigen uitrusting (het beste gereedschap, pantser, en een werkvoorraad voedsel, fakkels en kisten) door een quotum vast te stellen. Dit quotum wordt één keer aan het begin van de sessie berekend en 'bevroren'. Dit voorkomt dat de bot spullen uit de invoerkist opeens als zijn eigen eigendom gaat beschouwen en weigert weg te leggen.
 * **Ender Chest Uitsluiting:** De bot mag in normale kisten, vaten en alle kleuren shulker boxes kijken, maar de Ender Chest is expliciet uitgesloten. Die inventaris is speler-gebonden en daar blijft de bot veilig vanaf.
 * **Anti-Drop Beveiliging (`returnCursorItem`):** Als een kist onverwachts vol is tijdens het verplaatsen, kan een item aan de virtuele muiscursor van de bot blijven plakken. Zonder de opruim-functie zou dit item op de grond vallen zodra de kist sluit. De bot stopt het nu altijd veilig terug in zijn eigen tas.
 * **Auto-Indexatie:** Tijdens het openen van kisten leert de bot direct uit zijn hoofd wat erin ligt (`lib/storage.js`). Dit voedt het geheugen van de Koerier-module (`!haal` / `!waar`).
@@ -230,6 +239,9 @@ Deze module transformeert de bot in een volautomatisch magazijnsysteem. De bot l
 3. **Ronde 1 (Exact):** Loopt langs alle omliggende kisten. Hij scant de inhoud, leert deze uit zijn hoofd en stopt direct alle exacte matches weg.
 4. **Ronde 2 (Categorie):** Kijkt wat hij na ronde 1 nog over heeft. Hij zoekt kisten die items van dezelfde categorie bevatten (zoals 'gereedschap' of 'landbouw') en deelt de rest daar in.
 5. **Afronding:** De bot sluit alle vensters veilig af en rapporteert in de chat hoeveel items er exact en op categorie zijn weggewerkt, plus wat hij eventueel wegens ruimtegebrek bij zich heeft gehouden.
+
+**Tas legen (`dumpInventory`)**
+Dit is de omgekeerde beweging van het sorteren: niet de kist leeghalen en verdelen, maar de eigen tas in de invoerkist storten. De bot bevriest eerst zijn quotum, bepaalt daarmee wat vracht is, loopt naar de invoerkist en stort alles wat hij niet nodig heeft. Daarna meldt hij per soort wat er weg is (`Weggelegd: 64x cobblestone, 24x cod, ...`) en start hij de gewone sorteerronde, zodat alles meteen op zijn plek komt. Omdat dit een eigen taak is (`isDumping`), kan hij die sorteerronde aanroepen zonder over zijn eigen "ik ben al aan het sorteren" te struikelen, en breekt `!stop` allebei tegelijk af.
 
 ### 🛠️ Smid & Crafting (`features/toolsmith.js`)
 

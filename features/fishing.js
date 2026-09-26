@@ -27,7 +27,7 @@ const { goals } = require('mineflayer-pathfinder');
 const Vec3 = require('vec3');
 const { CONFIG } = require('../config');
 const botState = require('../state');
-const { Logger, setMovements, withTimeout, hasPathTo } = require('../utils');
+const { Logger, setMovements, withTimeout, hasPathTo, abortable, chatList } = require('../utils');
 const { closeWindow, openContainerAt, sleep } = require('../lib/containers');
 const { findInputChest, sortItems, sortableItems, STORAGE_BLOCKS } = require('./sorting');
 
@@ -69,6 +69,28 @@ async function equipRod(bot) {
 
   await bot.equip(hengel, 'hand');
   return true;
+}
+
+/**
+ * De dobber binnenhalen.
+ *
+ * bot.fish() heeft geen afbreek-knop: zolang er niets bijt blijft de lijn liggen. Nog een
+ * keer met de hengel klikken haalt hem binnen, precies zoals een speler dat zelf doet.
+ * Zonder dat blijft de lijn na een !stop of een timeout in het water hangen, en dan haalt
+ * de eerstvolgende bot.fish() hem alleen maar binnen in plaats van opnieuw te werpen --
+ * elke tweede worp was dan een lege klik.
+ *
+ * Alleen aanroepen zolang de worp nog loopt. Is de dobber al weg (de 'Fishing cancelled'
+ * die auto-eat veroorzaakt), dan werpt deze klik juist een nieuwe lijn uit waar niemand
+ * meer op wacht.
+ */
+function reelIn(bot) {
+  if (bot.heldItem?.name !== ROD) return;
+  try {
+    bot.activateItem();
+  } catch (err) {
+    Logger.debug(`Kon de dobber niet binnenhalen: ${err.message}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -178,14 +200,21 @@ async function castOnce(bot, mik, shouldStop) {
 
   const voor = snapshot(bot);
 
+  // Loopt de worp nog? Zo niet, dan is de dobber weg (binnengehaald of door de server
+  // vernietigd) en mag reelIn() er niet overheen klikken.
+  let worpKlaar = false;
   const worp = bot.fish();
   // Verliest bot.fish() de race met de timeout, dan wordt hij later alsnog afgewezen (de
-  // volgende bot.fish() breekt hem af). Zonder deze catch is dat een unhandled rejection.
-  worp.catch(() => {});
+  // volgende bot.fish() breekt hem af). Zonder deze handler is dat een unhandled rejection.
+  worp.then(() => { worpKlaar = true; }, () => { worpKlaar = true; });
 
   try {
-    await withTimeout(worp, FISH.castTimeout, 'wachten op een beet');
+    // Behalve op de timeout wordt er ook op shouldStop() gepolld. Zonder dat merkt !stop pas
+    // na castTimeout (40 seconden) dat hij mag ophouden, en zolang blijft de bot gewoon aan
+    // het vissen -- precies waarom !stop aanvoelde alsof hij er niets mee deed.
+    await abortable(withTimeout(worp, FISH.castTimeout, 'wachten op een beet'), shouldStop);
   } catch (err) {
+    if (!worpKlaar) reelIn(bot);
     return { gevangen: null, reden: err.message };
   }
 
@@ -297,6 +326,9 @@ async function fishForItems(bot, maxCasts = FISH.maxCasts) {
   const shouldStop = () => botState.fishSession !== session || botState.stopFishing;
 
   const totaal = { worpen: 0, gevangen: 0, perSoort: {}, gestort: 0, proviand: 0, mislukt: 0 };
+  // Of de sessie door de speler is afgebroken. Moet vastliggen vóór het finally-blok
+  // stopFishing weer op false zet, anders weet het eindrapport niet meer wat er gebeurd is.
+  let afgebroken = false;
 
   try {
     if (!bestRod(bot)) {
@@ -346,9 +378,24 @@ async function fishForItems(bot, maxCasts = FISH.maxCasts) {
       }
 
       const { gevangen, reden } = await castOnce(bot, stek.mik, shouldStop);
-      totaal.worpen++;
+
+      // Eerst bijschrijven, dan pas op stoppen kijken: een vis die net binnenkwam hoort in
+      // het eindrapport, ook als de speler er op datzelfde moment !stop achteraan typt.
+      if (gevangen) {
+        totaal.worpen++;
+        opRij = 0;
+        for (const [naam, aantal] of Object.entries(gevangen)) {
+          totaal.perSoort[naam] = (totaal.perSoort[naam] ?? 0) + aantal;
+          totaal.gevangen += aantal;
+        }
+      }
+
+      // Een worp die door !stop is afgebroken is geen misser: niet als worp meetellen, niet
+      // wachten, en niet opnieuw werpen.
+      if (shouldStop()) break;
 
       if (reden) {
+        totaal.worpen++;
         totaal.mislukt++;
         opRij++;
         Logger.debug(`Worp ${worp} mislukt: ${reden}`);
@@ -358,14 +405,6 @@ async function fishForItems(bot, maxCasts = FISH.maxCasts) {
           bot.chat('Het vissen lukt hier niet, ik stop.');
           break;
         }
-        await sleep(FISH.recastDelay);
-        continue;
-      }
-
-      opRij = 0;
-      for (const [naam, aantal] of Object.entries(gevangen)) {
-        totaal.perSoort[naam] = (totaal.perSoort[naam] ?? 0) + aantal;
-        totaal.gevangen += aantal;
       }
 
       await sleep(FISH.recastDelay);
@@ -380,6 +419,8 @@ async function fishForItems(bot, maxCasts = FISH.maxCasts) {
     Logger.error('Visfout', err);
     bot.chat('Er ging iets mis met vissen.');
   } finally {
+    afgebroken = shouldStop();
+
     if (bot.currentWindow) await closeWindow(bot, bot.currentWindow, FISH).catch(() => {});
     bot.clearControlStates();
 
@@ -390,15 +431,27 @@ async function fishForItems(bot, maxCasts = FISH.maxCasts) {
     }
   }
 
-  const lijst = Object.entries(totaal.perSoort).map(([k, v]) => `${v}x ${k}`).join(', ');
-  Logger.info(`VISSEN KLAAR: ${totaal.worpen} worpen, ${totaal.gevangen} gevangen `
-    + `(${totaal.mislukt} mislukt), ${totaal.gestort} opgeborgen${lijst ? ' | ' + lijst : ''}`);
+  const soorten = Object.entries(totaal.perSoort)
+    .sort((a, b) => b[1] - a[1])
+    .map(([naam, aantal]) => `${aantal}x ${naam}`);
+  Logger.info(`VISSEN ${afgebroken ? 'AFGEBROKEN' : 'KLAAR'}: ${totaal.worpen} worpen, `
+    + `${totaal.gevangen} gevangen (${totaal.mislukt} mislukt), ${totaal.gestort} opgeborgen`
+    + `${soorten.length ? ' | ' + soorten.join(', ') : ''}`);
 
-  if (botState.fishSession === session && totaal.gevangen > 0) {
-    bot.chat(`Klaar met vissen: ${totaal.gevangen} items uit ${totaal.worpen} worpen.`);
-    if (lijst) bot.chat(lijst);
-    if (totaal.gestort > 0) bot.chat(`${totaal.gestort} in de kist gelegd.`);
-    if (totaal.proviand > 0) bot.chat(`${totaal.proviand} eten hou ik als proviand.`);
+  // Ook een afgebroken sessie somt de hele vangst op: wie !stop typt wil juist weten wat hij
+  // tot dan toe heeft binnengehaald. Alleen een sessie die door een NIEUWE !vis is ingehaald
+  // zwijgt, anders praat de oude run door de nieuwe heen.
+  if (botState.fishSession === session) {
+    const kop = afgebroken ? 'Gestopt met vissen' : 'Klaar met vissen';
+    if (totaal.gevangen > 0) {
+      bot.chat(`${kop}: ${totaal.gevangen} items uit ${totaal.worpen} worpen.`);
+      chatList(bot, 'Gevangen: ', soorten);
+      if (totaal.gestort > 0) bot.chat(`${totaal.gestort} in de kist gelegd.`);
+      else if (afgebroken) bot.chat('De vangst hou ik bij me; met !leeg gaat hij alsnog de kist in.');
+      if (totaal.proviand > 0) bot.chat(`${totaal.proviand} eten hou ik als proviand.`);
+    } else if (afgebroken || totaal.worpen > 0) {
+      bot.chat(`${kop}: nog niets gevangen in ${totaal.worpen} worpen.`);
+    }
   }
 
   return totaal;
@@ -424,6 +477,7 @@ module.exports = {
   bestRod,
   equipRod,
   castOnce,
+  reelIn,
   deliverCatch,
   durabilityLeft,
 };

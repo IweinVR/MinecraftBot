@@ -306,6 +306,26 @@ async function withTimeout(promise, timeoutMs, label = 'actie') {
   }
 }
 
+/**
+ * Een opsomming in de chat zetten, opgeknipt in regels.
+ *
+ * De server kapt (of weigert) een chatregel boven de 256 tekens, en een vangstlijst van
+ * twintig soorten haalt dat makkelijk. Liever drie leesbare regels dan één afgekapte.
+ */
+function chatList(bot, prefix, delen, maxLengte = 180) {
+  let regel = '';
+  for (const deel of delen) {
+    const kandidaat = regel ? `${regel}, ${deel}` : deel;
+    if (kandidaat.length > maxLengte && regel) {
+      bot.chat(prefix + regel);
+      regel = deel;
+    } else {
+      regel = kandidaat;
+    }
+  }
+  if (regel) bot.chat(prefix + regel);
+}
+
 function getInventoryStatus(bot) {
   const status = [];
   if (!hasFood(bot)) status.push('geen voedsel');
@@ -335,7 +355,7 @@ function findNearbyBlocks(bot, blockNames, count = 10, searchRadius = CONFIG.sea
 
 // De taken die volgens de (isX, stopX)-afspraak uit state.js werken.
 const TASKS = [
-  'Mining', 'Fighting', 'Farming', 'Breeding', 'Sorting',
+  'Mining', 'Fighting', 'Farming', 'Breeding', 'Sorting', 'Dumping',
   'Trading', 'Fishing', 'Fetching', 'Smithing', 'Singing', 'Giving',
 ];
 
@@ -380,6 +400,7 @@ module.exports = {
   findNearbyBlocks,
   findNearestEntity,
   getInventoryStatus,
+  chatList,
   placeBlockAllowed,
   enforceNoBlockPlacing,
   abortable,

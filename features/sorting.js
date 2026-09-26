@@ -15,6 +15,10 @@
  * wordt een gouden zwaard uit de invoerkist opeens "zijn beste zwaard" en gaat het er nooit
  * meer uit.
  *
+ * Naast de sorteerronde zit hier ook dumpInventory() (!leeg): die gaat de andere kant op en
+ * stort juist de eigen tas in de invoerkist leeg. Hij gebruikt hetzelfde quotum, zodat "wat de
+ * bot nodig heeft" overal in de bot precies hetzelfde betekent.
+ *
  * Het openen en sluiten van kisten zelf zit in lib/containers.js; daar staat ook waarom dat
  * subtieler is dan het lijkt.
  */
@@ -23,7 +27,7 @@ const { goals } = require('mineflayer-pathfinder');
 const Vec3 = require('vec3');
 const { CONFIG, CHEST_BLOCKS } = require('../config');
 const botState = require('../state');
-const { Logger, setMovements, withTimeout } = require('../utils');
+const { Logger, setMovements, withTimeout, chatList } = require('../utils');
 const { categoryOf } = require('../data/categories');
 const { closeWindow, returnCursorItem, openContainerAt } = require('../lib/containers');
 const storage = require('../lib/storage');
@@ -60,6 +64,14 @@ const ARMOR_KINDS = ['helmet', 'chestplate', 'leggings', 'boots'];
 // Hiervan blijft er precies één van het beste exemplaar achter, net als bij de rest.
 const SINGLE_TOOLS = ['fishing_rod', 'shears', 'bow', 'crossbow'];
 
+// Werkvoorraad: hier houdt de bot tot een vast aantal van, geen "beste exemplaar" van.
+// Fakkels en kisten zijn wat hij tijdens het minen verbruikt (verlichting en de kisten die
+// hij om de zoveel fakkels in de tunnelwand zet). Zonder deze regel legde hij ze bij de
+// eerste de beste sorteerronde weg en stond hij even later in het donker zonder kist.
+//
+// Een redstone_torch hoort er bewust niet bij: dat is bouwmateriaal, geen verlichting.
+const TORCH_ITEMS = ['torch', 'soul_torch'];
+
 // Spullen die altijd meegaan, ongeacht hoeveel het er zijn.
 const ALWAYS_KEEP = new Set([
   'water_bucket', 'bucket', 'lava_bucket', 'milk_bucket',
@@ -93,7 +105,12 @@ function beterDan(a, b) {
  *
  * Even bewust per exemplaar en niet per soort: een sorteerbot die "alle zwaarden" beschermt
  * kan nooit een kist met zwaarden vullen. Hij houdt van elk soort gereedschap en van elk
- * harnasdeel precies het beste exemplaar, plus wat eten, en de rest is gewoon vracht.
+ * harnasdeel precies het beste exemplaar, plus een werkvoorraad eten, fakkels en kisten, en
+ * de rest is gewoon vracht.
+ *
+ * Let op dat dit bevroren hoort te worden (zie sortableItems): berekent de bot het opnieuw
+ * nadat hij een stapel fakkels uit de invoerkist heeft gehaald, dan zijn dat "zijn" fakkels
+ * en legt hij ze nooit meer weg.
  *
  * Gedragen harnas zit sowieso niet in bot.inventory.items() (dat zijn slots 5 t/m 8, en
  * items() begint pas bij 9), dus dat kan langs deze weg überhaupt niet in een kist belanden.
@@ -119,15 +136,23 @@ function protectionQuota(bot) {
   }
   for (const item of beste.values()) houden(item.name, 1);
 
-  // Eten: bewaar tot keepFood stuks in totaal, de rest mag de kist in.
-  let etenOver = SORT.keepFood;
-  for (const item of items) {
-    if (!bot.registry?.foodsByName?.[item.name]) continue;
-    if (etenOver <= 0) break;
-    const n = Math.min(item.count, etenOver);
-    houden(item.name, n);
-    etenOver -= n;
-  }
+  // Werkvoorraad: van een hele groep samen hoogstens `budget` stuks houden, de rest mag de
+  // kist in. Eén budget over de hele groep en niet per itemnaam, anders houdt hij van vier
+  // soorten vis elk een volle drempel over.
+  const reserveer = (past, budget) => {
+    let over = budget;
+    for (const item of items) {
+      if (over <= 0) break;
+      if (!past(item.name)) continue;
+      const n = Math.min(item.count, over);
+      houden(item.name, n);
+      over -= n;
+    }
+  };
+
+  reserveer(naam => !!bot.registry?.foodsByName?.[naam], SORT.keepFood);
+  reserveer(naam => TORCH_ITEMS.includes(naam), SORT.keepTorches);
+  reserveer(naam => CHEST_BLOCKS.includes(naam), SORT.keepChests);
 
   return quota;
 }
@@ -497,6 +522,152 @@ async function sortItems(bot, coords = null) {
   return totaal;
 }
 
+// ---------------------------------------------------------------------------
+// De tas legen
+// ---------------------------------------------------------------------------
+
+/**
+ * Alles wat de bot niet nodig heeft in de invoerkist leggen, en daarna (als sortAfterDump
+ * aanstaat) meteen een sorteerronde draaien.
+ *
+ * "Nodig" is hier exact hetzelfde als bij het sorteren, namelijk wat protectionQuota()
+ * overhoudt: de emmers, het schild en de totems, van elk soort gereedschap en elk harnasdeel
+ * het béste exemplaar, en een werkvoorraad eten, fakkels en kisten. Bewust dezelfde regel,
+ * anders houdt !leeg iets anders over dan !sort en weet je nooit meer wat de bot bij zich
+ * heeft -- en erger nog: de sorteerronde die hier direct achteraan komt zou het verschil
+ * meteen weer weghalen.
+ *
+ * Een eigen functie en niet een vlaggetje op sortItems(), want de richting is omgekeerd:
+ * sorteren haalt de invoerkist leeg en verdeelt hem, dit vult hem juist.
+ *
+ * @param {object} bot
+ * @param {{x: number, y: number, z: number}} [coords] expliciete kist om in te storten
+ */
+async function dumpInventory(bot, coords = null) {
+  if (botState.isDumping) {
+    bot.chat('Ik ben mijn tas al aan het legen!');
+    return null;
+  }
+
+  const session = ++botState.dumpSession;
+  botState.isDumping = true;
+  botState.stopDumping = false;
+  const shouldStop = () => botState.dumpSession !== session || botState.stopDumping;
+
+  const totaal = { gestort: 0, gehouden: 0, over: 0, perSoort: {}, gesorteerd: false };
+  let window = null;
+
+  try {
+    sortMovements(bot);
+
+    // Het quotum en de vrachtlijst één keer vastleggen, vóór de eerste kist opengaat. Zou je
+    // ze onderweg opnieuw berekenen, dan schuift het eten dat net weg is weer aan als
+    // proviand en blijft de bot met een halfvolle tas achter.
+    const quota = protectionQuota(bot);
+    const vracht = sortableItems(bot, quota);
+    const alles = bot.inventory.items().reduce((som, i) => som + i.count, 0);
+    totaal.gehouden = alles - vracht.reduce((som, i) => som + i.count, 0);
+
+    if (vracht.length === 0) {
+      bot.chat('Ik heb niets bij me wat weg kan, alleen mijn eigen spullen.');
+      return totaal;
+    }
+
+    const { pos, reden } = findInputChest(bot, coords);
+    if (!pos) {
+      bot.chat(`Ik kan de invoerkist niet vinden: ${reden}.`);
+      return totaal;
+    }
+
+    Logger.info(`Legen: ${vracht.length} soorten naar de kist op ${pos.x} ${pos.y} ${pos.z}`);
+    bot.chat(`Ik leeg mijn tas in de kist op ${pos.x} ${pos.y} ${pos.z}.`);
+
+    window = await openChestAt(bot, pos, shouldStop);
+    if (!window) {
+      bot.chat('Ik kan de invoerkist niet openen.');
+      return totaal;
+    }
+
+    for (const item of vracht) {
+      if (shouldStop()) break;
+
+      if (!chestHasRoom(window, item.name)) {
+        Logger.debug(`Kist zit vol, ${item.name} blijft mee`);
+        totaal.over += item.count;
+        continue;
+      }
+
+      // Aantal en naam vóór de verplaatsing vastleggen: deposit() zet de count van de stapel
+      // waar item naar wijst op nul, dus achteraf uitlezen levert altijd "0x" op.
+      const aantal = item.count;
+      const naam = item.name;
+
+      try {
+        await window.deposit(item.type, null, aantal);
+        totaal.gestort += aantal;
+        totaal.perSoort[naam] = (totaal.perSoort[naam] ?? 0) + aantal;
+      } catch (err) {
+        Logger.warn(`Kon ${naam} niet in de kist leggen: ${err.message}`);
+        // Kritiek: bij 'destination full' hangt de stapel nog aan de cursor en valt hij op
+        // de grond zodra het venster dichtgaat.
+        await returnCursorItem(bot, window);
+        totaal.over += aantal;
+      }
+    }
+
+    storage.record(pos, window.containerItems());
+    await closeChest(bot, window);
+    window = null;
+
+    const soorten = Object.entries(totaal.perSoort)
+      .sort((a, b) => b[1] - a[1])
+      .map(([naam, aantal]) => `${aantal}x ${naam}`);
+
+    // Melden vóór de sorteerronde: andersom verdrinkt dit bericht tussen de sorteermeldingen
+    // en lijkt het alsof het daarbij hoort.
+    if (botState.dumpSession === session) {
+      bot.chat(`${totaal.gestort} items in de kist gelegd, ${totaal.gehouden} hou ik bij me `
+        + '(gereedschap, harnas, proviand, fakkels en kisten).');
+      chatList(bot, 'Weggelegd: ', soorten);
+      if (totaal.over > 0) bot.chat(`${totaal.over} pasten er niet meer in, die hou ik bij me.`);
+    }
+
+    if (SORT.sortAfterDump && totaal.gestort > 0 && !shouldStop()) {
+      await sortItems(bot);
+      totaal.gesorteerd = true;
+    }
+  } catch (err) {
+    Logger.error('Fout bij het legen', err);
+    bot.chat('Er ging iets mis met het legen van mijn tas.');
+  } finally {
+    // Wat er ook misgaat: het venster moet dicht, anders weigert de server elke volgende kist.
+    if (window) await closeChest(bot, window).catch(() => {});
+    else if (bot.currentWindow) await closeChest(bot, bot.currentWindow).catch(() => {});
+
+    if (botState.dumpSession === session) {
+      botState.isDumping = false;
+      botState.stopDumping = false;
+      setMovements(bot, { canDig: false, canPlace: false, allowSprinting: true });
+    }
+  }
+
+  Logger.info(`LEGEN KLAAR: ${totaal.gestort} gestort, ${totaal.gehouden} gehouden, `
+    + `${totaal.over} pasten niet${totaal.gesorteerd ? ', daarna gesorteerd' : ''}`);
+
+  return totaal;
+}
+
+function stopDumping(bot) {
+  if (!botState.isDumping) {
+    bot.chat('Ik ben mijn tas niet aan het legen.');
+    return;
+  }
+  botState.stopDumping = true;
+  bot.pathfinder.stop();
+  bot.chat('Oke, ik stop met legen.');
+  Logger.info('Legen gestopt door gebruiker');
+}
+
 function stopSorting(bot) {
   if (!botState.isSorting) {
     bot.chat('Ik ben niet aan het sorteren.');
@@ -511,8 +682,11 @@ function stopSorting(bot) {
 module.exports = {
   sortItems,
   stopSorting,
+  dumpInventory,
+  stopDumping,
   // geëxporteerd voor tests en hergebruik
   STORAGE_BLOCKS,
+  TORCH_ITEMS,
   protectionQuota,
   sortableItems,
   findInputChest,
