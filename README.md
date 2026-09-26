@@ -88,7 +88,7 @@ Alle commando's vereisen een uitroepteken (`!`) vooraf. Een kleine greep uit de 
 * **Tunnels & Delven:** `!tunnel naar mij`, `!tunnel noord 20` of `!collect <blok> <aantal>`. Voor tunnels kun je optioneel breedte en hoogte toevoegen (bijv. `!tunnel noord 20 3 3`).
 * **Noodrem:** Typ `!stop` in de chat. Dit is de ultieme noodrem die direct álle huidige acties van de bot afbreekt.
 * **Informatie:** `!help` toont een lijst met alle commando's. `!pos` rapporteert de huidige locatie en inventarisstatus in de chat.
-* **Gedelegeerde acties:** Alle functies uit andere modules activeer je hier (bijv. `!farm`, `!sort`, `!leeg`, `!vis`, `!trade`, `!maak <item>`, `!haal <item>`, `!geef <item>`). Veel daarvan nemen een aantal of een naam als argument: `!farm tarwe` (alleen dat gewas), `!vis 20` (aantal worpen), `!maak 8 torch`, `!haal 64 cobblestone` (uit de opslag) en `!geef pickaxe` (uit haar eigen inventaris).
+* **Gedelegeerde acties:** Alle functies uit andere modules activeer je hier (bijv. `!tp`, `!farm`, `!sort`, `!leeg`, `!vis`, `!trade`, `!maak <item>`, `!haal <item>`, `!geef <item>`). Veel daarvan nemen een aantal of een naam als argument: `!farm tarwe` (alleen dat gewas), `!vis 20` (aantal worpen), `!maak 8 torch`, `!haal 64 cobblestone` (uit de opslag) en `!geef pickaxe` (uit haar eigen inventaris).
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Crash Preventie (Prototype-check):** Bij het uitlezen van argumentloze commando's controleert de code veilig via `hasOwnProperty`. Dit voorkomt dat een grapjas de bot laat crashen door JavaScript-systeemwoorden zoals `!__proto__` of `!constructor` in de chat te typen.
@@ -248,6 +248,28 @@ Dit is de omgekeerde beweging van het sorteren: niet een kist leeghalen en verde
 * `stortInKist` (alleen met coördinaten): dezelfde afhandeling als het sorteren, inclusief het terugleggen van een item dat aan de cursor blijft hangen als de kist vol raakt, en een sorteerronde achteraf.
 
 Daarna meldt hij per soort wat er weg is (`Neergelegd: 64x cobblestone, 16x cod, ...`). Omdat dit een eigen taak is (`isDumping`), kan hij de sorteerronde aanroepen zonder over zijn eigen "ik ben al aan het sorteren" te struikelen, en breekt `!stop` allebei tegelijk af.
+
+### 🌀 Teleporteren (`features/teleport.js`)
+
+De bot heeft op deze server commandorechten, en die gebruikt deze module: in plaats van een wandeling van soms duizenden blokken stuurt hij `/tp` en staat hij er meteen. Handig als je hem nodig hebt terwijl hij aan de andere kant van de wereld staat, achter een oceaan, of onder de grond waar de pathfinder toch nooit was gekomen.
+
+**Hoe te gebruiken in-game**
+* **Naar jou toe:** Typ `!tp`. De bot teleporteert naar degene die het commando typte.
+* **Naar iemand anders:** Typ `!tp <speler>` om hem bij een andere speler te laten verschijnen.
+* **Liever zien lopen?** `!kom` blijft gewoon bestaan; die loopt er echt naartoe.
+
+**Slimme Beveiligingen (Fail-safes)**
+* **Geen loze bevestiging:** Een servercommando stuurt geen antwoord terug dat je kunt afwachten. Mag de bot `/tp` niet gebruiken, dan gebeurt er domweg niets. Daarom wacht de module op het `forcedMove`-event (dat is de server die de bot verplaatst) en telt hij daarna na hoeveel blokken hij echt verschoven is. Pas dan zegt hij "Hier ben ik!" — anders meldt hij eerlijk dat het niet lukte en verwijst hij naar `!kom`.
+* **Geen selectors in een op-commando (`SPELERSNAAM`):** De naam gaat rechtstreeks een commando in dat met op-rechten draait. Alles wat geen gewone Minecraft-naam is (letters, cijfers, underscore, hoogstens 16 tekens) wordt geweigerd. Zonder die check kon `!tp @e[type=creeper]` de bot van alles laten verslepen namens de server.
+* **Lopend doel wissen:** Stond de bot te volgen of naar een coördinaat te lopen, dan wandelt hij na de sprong meteen weer terug en lijkt het alsof de teleport mislukt is. Het doel (`lastGoal`, `followToken`) wordt daarom gewist en de pathfinder gestopt.
+* **Lopende taken blijven lopen:** Was hij aan het boeren of graven, dan wordt die taak bewust *niet* afgebroken — die stuurt hem waarschijnlijk gewoon terug naar de akker. Hij zegt er wel bij waar hij mee bezig was, zodat je zelf kunt kiezen of je `!stop` typt.
+* **Wachten op de wereld:** Na de sprong wordt er kort gewacht (`settleDelay`), want de server stuurt de nieuwe positie en de chunks eromheen net na elkaar.
+
+**Stap-voor-stap Werking**
+1. **Naam controleren:** Is dit een echte spelersnaam? Zo niet, dan wordt er geen enkel commando verstuurd.
+2. **Opruimen:** Pathfinder-doel, controls en het onthouden doel gaan eruit.
+3. **Springen:** De bot onthoudt zijn positie, zet `/tp <bot> <speler>` in de chat en wacht op `forcedMove`.
+4. **Nameten:** Verschoven, of nu binnen `arrivedDistance` van de speler? Dan is het gelukt, en zegt hij dat. Anders krijg je te horen dat het commando niets deed.
 
 ### 🛠️ Smid & Crafting (`features/toolsmith.js`)
 

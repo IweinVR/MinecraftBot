@@ -31,6 +31,7 @@ const { tradeCrops, stopTrading } = require('./trading');
 const { fishForItems, stopFishing } = require('./fishing');
 const { fetchItem, giveItem, stopGiving, whereIs, refreshIndex, forgetIndex, stopFetching } = require('./courier');
 const { resupplyTools, craftItem, stopSmithing } = require('./toolsmith');
+const { teleportToPlayer } = require('./teleport');
 
 // Nederlandse windrichtingen mogen ook; intern blijft alles Engels omdat DIRECTIONS dat is.
 const COMPASS = {
@@ -219,6 +220,10 @@ function handleCommand(bot, username, message) {
       bot.chat(`Ik sta op ${p.x} ${p.y} ${p.z}${status}`);
     },
 
+    // Springen i.p.v. lopen: de bot heeft commandorechten, dus /tp scheelt een wandeling
+    // van soms duizenden blokken. !kom blijft voor als je hem wel wilt zien komen.
+    '!tp': () => teleportToPlayer(bot, username),
+
     '!bed': () => setBedSpawn(bot),
     '!die': () => killBot(bot),
     '!farm': () => farmCrops(bot),
@@ -244,6 +249,7 @@ function handleCommand(bot, username, message) {
 
     '!help': () => {
       bot.chat('Navigatie: !kom | !komallow | !goto x y z | !gotoallow x y z | !follow @speler');
+      bot.chat('  !tp (ik teleporteer naar jou) | !tp speler (naar iemand anders)');
       bot.chat('Overig: !stop | !pos | !bed | !die | !stopmine | !collect blok aantal');
       bot.chat('Tunnel: !tunnel naar x y z | !tunnel naar mij | !tunnel noord 20');
       bot.chat('  grootte: zet "breedte hoogte" achter ELKE tunnelvorm, bv. !tunnel noord 20 3 3 (standaard is 1 breed, 2 hoog)');
@@ -310,6 +316,16 @@ function handleCommand(bot, username, message) {
       botState.shouldRestore = true;
       bot.pathfinder.setGoal(new goals.GoalBlock(x, y, z));
     }, 150);
+    return;
+  }
+
+  // !tp <speler> -> naar iemand anders dan degene die het vraagt
+  match = message.match(/^!tp (.+)$/i);
+  if (match) {
+    teleportToPlayer(bot, username, match[1].trim()).catch(err => {
+      Logger.error('Teleportfout', err);
+      bot.chat('Er ging iets mis met teleporteren.');
+    });
     return;
   }
 

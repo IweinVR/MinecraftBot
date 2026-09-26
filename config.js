@@ -240,6 +240,12 @@ const CONFIG = {
     deliverAfter: true,      // vangst na afloop in de invoerkist leggen
     sortAfter: true,         // en daarna meteen een sorteerronde draaien
   },
+  teleport: {
+    timeout: 3000,           // zo lang wacht hij op de server na /tp
+    settleDelay: 250,        // rust na de sprong, zodat de chunks om hem heen geladen zijn
+    minDistance: 3,          // zoveel blokken verschuiving telt als "hij is echt gesprongen"
+    arrivedDistance: 8,      // of: hij staat binnen zoveel blokken van de speler
+  },
   courier: {
     chestRadius: 32,         // hoe ver rond de bot naar kisten gezocht wordt
     maxChests: 32,           // hoogstens zoveel kisten in de index
