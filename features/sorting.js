@@ -27,9 +27,9 @@ const { goals } = require('mineflayer-pathfinder');
 const Vec3 = require('vec3');
 const { CONFIG, CHEST_BLOCKS } = require('../config');
 const botState = require('../state');
-const { Logger, setMovements, withTimeout, chatList } = require('../utils');
+const { Logger, setMovements, withTimeout, chatList, findNearestEntity } = require('../utils');
 const { categoryOf } = require('../data/categories');
-const { closeWindow, returnCursorItem, openContainerAt } = require('../lib/containers');
+const { closeWindow, returnCursorItem, openContainerAt, sleep } = require('../lib/containers');
 const storage = require('../lib/storage');
 
 const SORT = CONFIG.sorting;
@@ -526,68 +526,34 @@ async function sortItems(bot, coords = null) {
 // De tas legen
 // ---------------------------------------------------------------------------
 
+/** "3x cod"-regels van wat er weg is, grootste stapel eerst. */
+function somOp(perSoort) {
+  return Object.entries(perSoort)
+    .sort((a, b) => b[1] - a[1])
+    .map(([naam, aantal]) => `${aantal}x ${naam}`);
+}
+
 /**
- * Alles wat de bot niet nodig heeft in de invoerkist leggen, en daarna (als sortAfterDump
- * aanstaat) meteen een sorteerronde draaien.
- *
- * "Nodig" is hier exact hetzelfde als bij het sorteren, namelijk wat protectionQuota()
- * overhoudt: de emmers, het schild en de totems, van elk soort gereedschap en elk harnasdeel
- * het béste exemplaar, en een werkvoorraad eten, fakkels en kisten. Bewust dezelfde regel,
- * anders houdt !leeg iets anders over dan !sort en weet je nooit meer wat de bot bij zich
- * heeft -- en erger nog: de sorteerronde die hier direct achteraan komt zou het verschil
- * meteen weer weghalen.
- *
- * Een eigen functie en niet een vlaggetje op sortItems(), want de richting is omgekeerd:
- * sorteren haalt de invoerkist leeg en verdeelt hem, dit vult hem juist.
- *
- * @param {object} bot
- * @param {{x: number, y: number, z: number}} [coords] expliciete kist om in te storten
+ * De vracht in een kist storten. Alleen voor !leeg MET coördinaten: dan weet je zeker welke
+ * kist je bedoelt. Zonder coördinaten gaat alles naar de speler, zie gooiBijSpeler().
  */
-async function dumpInventory(bot, coords = null) {
-  if (botState.isDumping) {
-    bot.chat('Ik ben mijn tas al aan het legen!');
-    return null;
+async function stortInKist(bot, vracht, coords, totaal, shouldStop) {
+  const { pos, reden } = findInputChest(bot, coords);
+  if (!pos) {
+    bot.chat(`Ik kan die kist niet gebruiken: ${reden}.`);
+    return false;
   }
 
-  const session = ++botState.dumpSession;
-  botState.isDumping = true;
-  botState.stopDumping = false;
-  const shouldStop = () => botState.dumpSession !== session || botState.stopDumping;
+  Logger.info(`Legen: ${vracht.length} soorten naar de kist op ${pos.x} ${pos.y} ${pos.z}`);
+  bot.chat(`Ik leeg mijn tas in de kist op ${pos.x} ${pos.y} ${pos.z}.`);
 
-  const totaal = { gestort: 0, gehouden: 0, over: 0, perSoort: {}, gesorteerd: false };
-  let window = null;
+  const window = await openChestAt(bot, pos, shouldStop);
+  if (!window) {
+    bot.chat('Ik kan die kist niet openen.');
+    return false;
+  }
 
   try {
-    sortMovements(bot);
-
-    // Het quotum en de vrachtlijst één keer vastleggen, vóór de eerste kist opengaat. Zou je
-    // ze onderweg opnieuw berekenen, dan schuift het eten dat net weg is weer aan als
-    // proviand en blijft de bot met een halfvolle tas achter.
-    const quota = protectionQuota(bot);
-    const vracht = sortableItems(bot, quota);
-    const alles = bot.inventory.items().reduce((som, i) => som + i.count, 0);
-    totaal.gehouden = alles - vracht.reduce((som, i) => som + i.count, 0);
-
-    if (vracht.length === 0) {
-      bot.chat('Ik heb niets bij me wat weg kan, alleen mijn eigen spullen.');
-      return totaal;
-    }
-
-    const { pos, reden } = findInputChest(bot, coords);
-    if (!pos) {
-      bot.chat(`Ik kan de invoerkist niet vinden: ${reden}.`);
-      return totaal;
-    }
-
-    Logger.info(`Legen: ${vracht.length} soorten naar de kist op ${pos.x} ${pos.y} ${pos.z}`);
-    bot.chat(`Ik leeg mijn tas in de kist op ${pos.x} ${pos.y} ${pos.z}.`);
-
-    window = await openChestAt(bot, pos, shouldStop);
-    if (!window) {
-      bot.chat('Ik kan de invoerkist niet openen.');
-      return totaal;
-    }
-
     for (const item of vracht) {
       if (shouldStop()) break;
 
@@ -616,23 +582,137 @@ async function dumpInventory(bot, coords = null) {
     }
 
     storage.record(pos, window.containerItems());
+  } finally {
     await closeChest(bot, window);
-    window = null;
+  }
 
-    const soorten = Object.entries(totaal.perSoort)
-      .sort((a, b) => b[1] - a[1])
-      .map(([naam, aantal]) => `${aantal}x ${naam}`);
+  return true;
+}
 
-    // Melden vóór de sorteerronde: andersom verdrinkt dit bericht tussen de sorteermeldingen
-    // en lijkt het alsof het daarbij hoort.
-    if (botState.dumpSession === session) {
-      bot.chat(`${totaal.gestort} items in de kist gelegd, ${totaal.gehouden} hou ik bij me `
-        + '(gereedschap, harnas, proviand, fakkels en kisten).');
-      chatList(bot, 'Weggelegd: ', soorten);
-      if (totaal.over > 0) bot.chat(`${totaal.over} pasten er niet meer in, die hou ik bij me.`);
+/**
+ * Alles voor de voeten van de dichtstbijzijnde speler op de grond leggen.
+ *
+ * Dit is wat een kaal !leeg doet: geen kist zoeken, geen sorteerronde, gewoon afgeven. Dat
+ * is bewust de standaard, want een kist vinden en openen is precies het stuk dat onderweg
+ * misgaat — en op de grond leggen kan altijd.
+ *
+ * Wel iets om te weten: gedropte items verdwijnen in vanilla na vijf minuten. Er moet dus
+ * echt iemand staan die ze oppakt, vandaar dat hij niets doet als hij niemand ziet.
+ */
+async function gooiBijSpeler(bot, vracht, totaal, shouldStop) {
+  const speler = findNearestEntity(bot, e => e.type === 'player' && e.username !== bot.username);
+  if (!speler) {
+    bot.chat('Ik zie niemand in de buurt om mijn spullen aan te geven.');
+    return false;
+  }
+
+  const wie = speler.username ?? 'je';
+  bot.chat(`Ik kom naar ${wie} en leg alles daar neer.`);
+
+  const doel = speler.position.floored();
+  try {
+    await withTimeout(
+      bot.pathfinder.goto(new goals.GoalNear(doel.x, doel.y, doel.z, SORT.approachRange)),
+      SORT.deliverTimeout,
+      'naar de speler lopen'
+    );
+  } catch (err) {
+    Logger.warn(`Kon niet bij ${wie} komen: ${err.message}`);
+    bot.chat('Ik kom niet bij je, ik leg het hier neer.');
+  }
+
+  if (shouldStop()) return false;
+
+  // Naar zijn VOETEN kijken en niet naar zijn hoofd: een vlakke worphoek smijt de spullen
+  // meters voorbij de speler, een steile laat ze vlak voor hem neerkomen.
+  try {
+    if (speler.isValid) await bot.lookAt(speler.position);
+  } catch (err) {
+    Logger.debug('Kon niet naar de speler kijken');
+  }
+
+  for (const item of vracht) {
+    if (shouldStop()) break;
+
+    try {
+      await bot.toss(item.type, null, item.count);
+      totaal.gestort += item.count;
+      totaal.perSoort[item.name] = (totaal.perSoort[item.name] ?? 0) + item.count;
+    } catch (err) {
+      Logger.warn(`Kon ${item.name} niet neerleggen: ${err.message}`);
+      totaal.over += item.count;
     }
 
-    if (SORT.sortAfterDump && totaal.gestort > 0 && !shouldStop()) {
+    // Even rust tussen twee worpen: een reeks tosses achter elkaar loopt uit de pas met de
+    // server en dan blijft er zomaar een stapel in de tas zitten.
+    await sleep(SORT.tossDelay);
+  }
+
+  return true;
+}
+
+/**
+ * Alles wat de bot niet nodig heeft van zich af: standaard voor de voeten van de
+ * dichtstbijzijnde speler, of in een kist als je er coördinaten bij geeft (en dan draait er
+ * ook een sorteerronde achteraan, want dan ligt het in de invoerbak).
+ *
+ * "Nodig" is exact hetzelfde als bij het sorteren, namelijk wat protectionQuota() overhoudt:
+ * de emmers, het schild en de totems, van elk soort gereedschap en elk harnasdeel het beste
+ * exemplaar, en een werkvoorraad eten, fakkels en kisten. Bewust dezelfde regel, anders houdt
+ * !leeg iets anders over dan !sort en weet je nooit meer wat de bot bij zich heeft.
+ *
+ * Een eigen functie en niet een vlaggetje op sortItems(), want de richting is omgekeerd:
+ * sorteren haalt de invoerkist leeg en verdeelt hem, dit raakt juist de eigen tas kwijt.
+ *
+ * @param {object} bot
+ * @param {{x: number, y: number, z: number}} [coords] kist om in te storten i.p.v. te geven
+ */
+async function dumpInventory(bot, coords = null) {
+  if (botState.isDumping) {
+    bot.chat('Ik ben mijn tas al aan het legen!');
+    return null;
+  }
+
+  const session = ++botState.dumpSession;
+  botState.isDumping = true;
+  botState.stopDumping = false;
+  const shouldStop = () => botState.dumpSession !== session || botState.stopDumping;
+
+  const totaal = { gestort: 0, gehouden: 0, over: 0, perSoort: {}, gesorteerd: false };
+  const naarKist = !!coords;
+
+  try {
+    sortMovements(bot);
+
+    // Het quotum en de vrachtlijst één keer vastleggen, vóór er iets verplaatst wordt. Zou je
+    // ze onderweg opnieuw berekenen, dan schuift het eten dat net weg is weer aan als
+    // proviand en blijft de bot met een halfvolle tas achter.
+    const quota = protectionQuota(bot);
+    const vracht = sortableItems(bot, quota);
+    const alles = bot.inventory.items().reduce((som, i) => som + i.count, 0);
+    totaal.gehouden = alles - vracht.reduce((som, i) => som + i.count, 0);
+
+    if (vracht.length === 0) {
+      bot.chat('Ik heb niets bij me wat weg kan, alleen mijn eigen spullen.');
+      return totaal;
+    }
+
+    const gelukt = naarKist
+      ? await stortInKist(bot, vracht, coords, totaal, shouldStop)
+      : await gooiBijSpeler(bot, vracht, totaal, shouldStop);
+    if (!gelukt) return totaal;
+
+    // Melden vóór een eventuele sorteerronde: andersom verdrinkt dit bericht tussen de
+    // sorteermeldingen en lijkt het alsof het daarbij hoort.
+    if (botState.dumpSession === session) {
+      bot.chat(`${totaal.gestort} items ${naarKist ? 'in de kist gelegd' : 'neergelegd'}, `
+        + `${totaal.gehouden} hou ik bij me (gereedschap, harnas, eten, fakkels en kisten).`);
+      chatList(bot, naarKist ? 'Weggelegd: ' : 'Neergelegd: ', somOp(totaal.perSoort));
+      if (totaal.over > 0) bot.chat(`${totaal.over} kreeg ik niet kwijt, die hou ik bij me.`);
+    }
+
+    // Alleen zinvol na de kist-route: wat op de grond ligt valt niet te sorteren.
+    if (naarKist && SORT.sortAfterDump && totaal.gestort > 0 && !shouldStop()) {
       await sortItems(bot);
       totaal.gesorteerd = true;
     }
@@ -640,9 +720,9 @@ async function dumpInventory(bot, coords = null) {
     Logger.error('Fout bij het legen', err);
     bot.chat('Er ging iets mis met het legen van mijn tas.');
   } finally {
-    // Wat er ook misgaat: het venster moet dicht, anders weigert de server elke volgende kist.
-    if (window) await closeChest(bot, window).catch(() => {});
-    else if (bot.currentWindow) await closeChest(bot, bot.currentWindow).catch(() => {});
+    // Vangnet: blijft er na een fout toch een venster openstaan, dan weigert de server elke
+    // volgende kist. Het normale sluiten gebeurt in stortInKist zelf.
+    if (bot.currentWindow) await closeChest(bot, bot.currentWindow).catch(() => {});
 
     if (botState.dumpSession === session) {
       botState.isDumping = false;
@@ -651,8 +731,9 @@ async function dumpInventory(bot, coords = null) {
     }
   }
 
-  Logger.info(`LEGEN KLAAR: ${totaal.gestort} gestort, ${totaal.gehouden} gehouden, `
-    + `${totaal.over} pasten niet${totaal.gesorteerd ? ', daarna gesorteerd' : ''}`);
+  Logger.info(`LEGEN KLAAR (${naarKist ? 'kist' : 'speler'}): ${totaal.gestort} weg, `
+    + `${totaal.gehouden} gehouden, ${totaal.over} bleef hangen`
+    + `${totaal.gesorteerd ? ', daarna gesorteerd' : ''}`);
 
   return totaal;
 }
@@ -684,6 +765,8 @@ module.exports = {
   stopSorting,
   dumpInventory,
   stopDumping,
+  gooiBijSpeler,
+  stortInKist,
   // geëxporteerd voor tests en hergebruik
   STORAGE_BLOCKS,
   TORCH_ITEMS,

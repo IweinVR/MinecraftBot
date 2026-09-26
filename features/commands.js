@@ -226,7 +226,8 @@ function handleCommand(bot, username, message) {
     '!breed': () => breedOnce(bot),
     '!sort': () => sortItems(bot),
     '!stopsort': () => stopSorting(bot),
-    // !leeg is de tegenhanger van !sort: niet de kist maar de eigen tas gaat leeg.
+    // !leeg is de tegenhanger van !sort: niet de kist maar de eigen tas gaat leeg. Kaal
+    // gaat alles naar de dichtstbijzijnde speler; met coördinaten in die kist.
     '!leeg': () => dumpInventory(bot),
     '!dump': () => dumpInventory(bot),
     '!stopleeg': () => stopDumping(bot),
@@ -250,7 +251,8 @@ function handleCommand(bot, username, message) {
       bot.chat('  één gewas: !farm tarwe | !farm wortels | !farm pompoen | !farm suikerriet (hij maakt dat gewas eerst helemaal af)');
       bot.chat('Fokken: !breed (voert koeien, schapen, varkens, kippen... met het juiste voer)');
       bot.chat('Sorteren: !sort | !sort x y z (invoerkist) | !stopsort');
-      bot.chat('Tas legen: !leeg | !leeg x y z (kist) | !stopleeg — alles behalve gereedschap, harnas, eten, fakkels en kisten');
+      bot.chat('Tas legen: !leeg (legt alles bij de dichtste speler neer) | !leeg x y z (in die kist) | !stopleeg');
+      bot.chat('  hij houdt alleen zijn gereedschap, harnas, 1 stack eten, 1 stack fakkels en 1 stack kisten');
       bot.chat('Handelen: !trade | !trade kist x y z hal x y z [kluis x y z] | !stoptrade');
       bot.chat('Vissen: !vis | !vis 20 (aantal worpen) | !stopvis');
       bot.chat('Koerier: !haal 64 cobblestone | !haal diamond | !waar ijzer | !index | !vergeet (lijst wissen) | !stophaal');
@@ -322,7 +324,7 @@ function handleCommand(bot, username, message) {
     return;
   }
 
-  // !leeg x y z -> in die kist storten i.p.v. in de dichtstbijzijnde koperen kist
+  // !leeg x y z -> in die kist storten i.p.v. bij de speler neerleggen
   match = message.match(/^!(?:leeg|dump) (-?\d+) (-?\d+) (-?\d+)$/);
   if (match) {
     const [, x, y, z] = match.map(Number);

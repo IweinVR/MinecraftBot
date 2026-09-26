@@ -447,7 +447,7 @@ async function fishForItems(bot, maxCasts = FISH.maxCasts) {
       bot.chat(`${kop}: ${totaal.gevangen} items uit ${totaal.worpen} worpen.`);
       chatList(bot, 'Gevangen: ', soorten);
       if (totaal.gestort > 0) bot.chat(`${totaal.gestort} in de kist gelegd.`);
-      else if (afgebroken) bot.chat('De vangst hou ik bij me; met !leeg gaat hij alsnog de kist in.');
+      else if (afgebroken) bot.chat('De vangst hou ik bij me; met !leeg leg ik hem bij je neer.');
       if (totaal.proviand > 0) bot.chat(`${totaal.proviand} eten hou ik als proviand.`);
     } else if (afgebroken || totaal.worpen > 0) {
       bot.chat(`${kop}: nog niets gevangen in ${totaal.worpen} worpen.`);

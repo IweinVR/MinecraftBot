@@ -221,10 +221,11 @@ Deze module transformeert de bot in een volautomatisch magazijnsysteem. De bot l
 * **Automatisch Sorteren:** Typ `!sort` in de chat. De bot zoekt automatisch de dichtstbijzijnde koperen kist (of gewone kist) als invoerbak, haalt deze leeg en begint met sorteren.
 * **Specifieke Kist Sorteren:** Typ `!sort <x> <y> <z>` om zelf de coördinaten van de invoerkist aan te wijzen.
 * **Stoppen:** Typ `!stopsort` (of `!stop`) om de sorteeractie direct af te breken.
-* **Tas legen (`!leeg`):** Typ `!leeg` (of `!dump`) om de bot zijn héle inventaris in de invoerkist te laten storten, op zijn eigen uitrusting na. Handig na een vis- of mijnsessie die je halverwege hebt afgebroken. Met `!leeg <x> <y> <z>` wijs je zelf een kist aan, en `!stopleeg` breekt het af.
-  * Wat hij houdt is exact wat het sorteersysteem altijd al voor hem reserveert (`protectionQuota`): zijn emmers, schild, elytra en totems, van elk soort gereedschap en van elk harnasdeel het beste exemplaar, plus een werkvoorraad van `keepFood` eten (16), `keepTorches` fakkels (1 stack) en `keepChests` kisten (1 stack). Al het andere gaat de kist in.
-  * Die fakkels en kisten horen bij het quotum zelf en niet alleen bij `!leeg`. Dat moet ook: `!leeg` draait er direct een sorteerronde achteraan, en die zou ze er anders meteen weer uit halen. Zo houdt de bot na élke opruimactie genoeg bij zich om verder te kunnen minen.
-  * Staat `sortAfterDump` aan (standaard), dan draait hij er direct een sorteerronde achteraan, zodat de spullen niet in de invoerbak blijven liggen. Wat er niet meer in de kist paste, houdt hij bij zich en meldt hij in de chat.
+* **Tas legen (`!leeg`):** Typ `!leeg` (of `!dump`) om de bot alles wat hij niet nodig heeft van zich af te laten doen. Hij loopt naar de dichtstbijzijnde speler en legt het daar voor zijn voeten neer. Handig na een vis- of mijnsessie die je halverwege hebt afgebroken. `!stopleeg` (of `!stop`) breekt het af.
+  * *Waarom op de grond en niet in een kist:* een kist zoeken, ernaartoe lopen en openen is precies het stuk dat onderweg misgaat. Neerleggen kan altijd. Wel iets om te weten: **gedropte items verdwijnen in vanilla na vijf minuten**, dus er moet iemand staan die ze oppakt. Ziet de bot niemand, dan doet hij niets en zegt hij dat.
+  * *Toch een kist:* `!leeg <x> <y> <z>` stort alles in die kist in plaats van het neer te leggen. Staat `sortAfterDump` aan (standaard), dan draait er direct een sorteerronde achteraan zodat het niet in de invoerbak blijft liggen. Wat er niet meer in paste, houdt hij bij zich en meldt hij in de chat.
+  * Wat hij houdt is exact wat het sorteersysteem altijd al voor hem reserveert (`protectionQuota`): zijn emmers, schild, elytra en totems, van elk soort gereedschap en van elk harnasdeel het beste exemplaar, plus een werkvoorraad van één stapel eten (`keepFood`), één stapel fakkels (`keepTorches`) en één stapel kisten (`keepChests`). Al het andere gaat weg.
+  * Die werkvoorraad hoort bij het quotum zelf en niet alleen bij `!leeg`. Dat moet ook: de kist-variant draait er een sorteerronde achteraan, en die zou het verschil er anders meteen weer uit halen. Zo houdt de bot na élke opruimactie genoeg bij zich om verder te kunnen minen.
 
 **Slimme Beveiligingen (Fail-safes)**
 * **Twee-rondes Algoritme:** Dit is de kern van de module. Ronde 1 loopt langs alle kisten en legt alléén items weg die *exact* overeenkomen (steen bij steen). Pas in Ronde 2 wordt de rest op categorie verdeeld. Dit voorkomt dat een gouden zwaard in de eerste de beste kist met een stenen zwaard belandt, terwijl er verderop in het pakhuis een specifieke gouden-zwaarden-kist staat.
@@ -241,7 +242,12 @@ Deze module transformeert de bot in een volautomatisch magazijnsysteem. De bot l
 5. **Afronding:** De bot sluit alle vensters veilig af en rapporteert in de chat hoeveel items er exact en op categorie zijn weggewerkt, plus wat hij eventueel wegens ruimtegebrek bij zich heeft gehouden.
 
 **Tas legen (`dumpInventory`)**
-Dit is de omgekeerde beweging van het sorteren: niet de kist leeghalen en verdelen, maar de eigen tas in de invoerkist storten. De bot bevriest eerst zijn quotum, bepaalt daarmee wat vracht is, loopt naar de invoerkist en stort alles wat hij niet nodig heeft. Daarna meldt hij per soort wat er weg is (`Weggelegd: 64x cobblestone, 24x cod, ...`) en start hij de gewone sorteerronde, zodat alles meteen op zijn plek komt. Omdat dit een eigen taak is (`isDumping`), kan hij die sorteerronde aanroepen zonder over zijn eigen "ik ben al aan het sorteren" te struikelen, en breekt `!stop` allebei tegelijk af.
+Dit is de omgekeerde beweging van het sorteren: niet een kist leeghalen en verdelen, maar de eigen tas kwijtraken. De bot bevriest eerst zijn quotum en bepaalt daarmee wat vracht is. Daarna volgt één van twee routes:
+
+* `gooiBijSpeler` (standaard): hij zoekt de dichtstbijzijnde speler, loopt ernaartoe, kijkt naar diens **voeten** — naar het hoofd kijken geeft een vlakke worphoek waardoor `bot.toss()` de spullen meters voorbij de speler smijt — en legt stapel voor stapel alles neer, met een korte pauze ertussen zodat de server geen worp mist.
+* `stortInKist` (alleen met coördinaten): dezelfde afhandeling als het sorteren, inclusief het terugleggen van een item dat aan de cursor blijft hangen als de kist vol raakt, en een sorteerronde achteraf.
+
+Daarna meldt hij per soort wat er weg is (`Neergelegd: 64x cobblestone, 16x cod, ...`). Omdat dit een eigen taak is (`isDumping`), kan hij de sorteerronde aanroepen zonder over zijn eigen "ik ben al aan het sorteren" te struikelen, en breekt `!stop` allebei tegelijk af.
 
 ### 🛠️ Smid & Crafting (`features/toolsmith.js`)
 

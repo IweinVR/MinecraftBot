@@ -191,11 +191,13 @@ const CONFIG = {
     openTimeout: 5000,       // een geblokkeerde kist stuurt nooit een windowOpen
     closeTimeout: 2000,
     settleDelay: 250,        // rust na het sluiten, tegen desyncs bij de volgende kist
-    keepFood: 16,            // zoveel eten blijft altijd in de inventaris
+    keepFood: 64,            // zoveel eten blijft altijd in de inventaris (1 stapel proviand)
     keepTorches: 64,         // en zoveel fakkels: daarmee verlicht hij zijn tunnels
     keepChests: 64,          // en zoveel kisten: die zet hij onderweg in de tunnelwand
     minFreeSlots: 1,         // stop met ophalen als er nog zoveel slots vrij zijn
-    sortAfterDump: true,     // na !leeg meteen een sorteerronde draaien
+    sortAfterDump: true,     // na !leeg in een kist meteen een sorteerronde draaien
+    deliverTimeout: 60000,   // !leeg zonder kist: de speler kan verderop staan
+    tossDelay: 150,          // rust tussen twee worpen, anders mist de server er een
   },
   trading: {
     chestRadius: 24,         // waar de voorraad- en kluiskist gezocht worden
