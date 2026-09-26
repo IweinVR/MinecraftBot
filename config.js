@@ -137,6 +137,13 @@ const CONFIG = {
     dropSweepRadius: 4,
     // Opslaan in een kist onderweg. Dezelfde velden als bij het sorteren, want het openen
     // loopt via dezelfde lib/containers.js.
+    // Verder dan dit reikt hij niet vanaf het looppad: zo'n vier blokken omhoog en vier
+    // opzij van de hartlijn. Vraag je een grotere gang, dan knipt mineRoom() hem in stroken
+    // en lagen van precies deze maat.
+    maxBreedte: 9,
+    maxHoogte: 4,
+    descendDelay: 400,       // wachten tot hij een blok gezakt is bij het afdalen
+    maxAfdaling: 16,         // veiligheidsrem op de zaklus
     chestSearchRadius: 10,   // zo ver om zich heen kijken naar een bestaande kist
     reachDistance: 4,        // binnen deze afstand kan hij de kist al openen
     approachRange: 2,

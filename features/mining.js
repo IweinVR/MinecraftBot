@@ -16,6 +16,8 @@
  *   - grind en zand vallen na het graven alsnog in de gang; die worden opnieuw weggehaald
  *   - lastMineData onthoudt bij welke cel hij was, zodat een respawn verdergaat i.p.v. opnieuw
  *   - voorraadkisten gaan in een zelfgegraven nis in de wand, niet in de gang zelf
+ *   - er wordt per rij alleen voor ERTS gestopt; "collect" achter het commando raapt alles op
+ *   - te grote maten gaan naar mineRoom(), dat de kamer in stroken en lagen knipt
  */
 
 const { goals } = require('mineflayer-pathfinder');
@@ -24,6 +26,7 @@ const { CONFIG, DIRECTIONS, SIDE_DIRECTIONS, CHEST_BLOCKS } = require('../config
 const botState = require('../state');
 const { Logger, setMovements, findItem, findItemExact, isItemToKeep, findNearestBlock, placeBlockAllowed, abortable, withTimeout } = require('../utils');
 const { openContainerAt, closeWindow } = require('../lib/containers');
+const { categoryOf } = require('../data/categories');
 
 const MINING = CONFIG.mining;
 
@@ -123,6 +126,39 @@ async function digFallingBlocks(bot, pos, shouldStop) {
   return extra;
 }
 
+/**
+ * Waar de bot wél voor omloopt als hij niet alles opraapt.
+ *
+ * De categorieën komen uit data/categories.js, zodat er niet nóg een lijst met "wat is
+ * waardevol" door de bot zwerft. Let op dat het om de DROPS gaat en niet om de blokken: een
+ * diamond_ore laat een 'diamond' vallen, en die valt onder metaal_en_edelsteen.
+ */
+const WAARDEVOLLE_CATEGORIEEN = new Set(['erts', 'metaal_en_edelsteen', 'grondstofblokken']);
+
+// Redstone hoort in data/categories.js bij de redstone-categorie, samen met zuigers en rails.
+// Het is wél gewoon een ertsdrop, dus hier apart. Hetzelfde voor de dingen die je alleen
+// diep onder de grond tegenkomt.
+const WAARDEVOLLE_ITEMS = new Set(['redstone', 'glowstone_dust', 'echo_shard', 'ancient_debris']);
+
+/**
+ * Is deze drop de moeite waard om voor te stoppen?
+ *
+ * Kan het item niet gelezen worden (de metadata van de entity is nog niet binnen), dan telt
+ * hij als niet-waardevol. Dat is de veilige kant op: één gemiste kool is minder erg dan een
+ * bot die alsnog voor elke brok steen omloopt.
+ */
+function isWaardevolleDrop(bot, entity) {
+  let item = null;
+  try {
+    item = entity.getDroppedItem();
+  } catch (err) {
+    return false;
+  }
+  if (!item?.name) return false;
+  return WAARDEVOLLE_ITEMS.has(item.name)
+    || WAARDEVOLLE_CATEGORIEEN.has(categoryOf(bot.registry, item.name));
+}
+
 /** Alle item-entities binnen een straal, dichtstbij eerst. Zelfde aanpak als in farming.js. */
 function nearbyDrops(bot, radius) {
   return Object.values(bot.entities)
@@ -165,12 +201,18 @@ async function collectDrop(bot, entity) {
  * raapt alleen op wat binnen ongeveer 1 blok van de speler ligt, en de kruisdoorsnede reikt
  * verder dan dat. Na elke laag (cel) even om zich heen kijken vangt die achterblijvers op,
  * zonder dat de bot voor elk los blok een aparte omweg hoeft te maken tijdens het graven zelf.
+ *
+ * Standaard gebeurt dat alleen voor erts. Alles oprapen betekent namelijk dat de bot bij elke
+ * rij van zijn graafpunt weg loopt naar elke losse brok steen en weer terug, en dat kost bij
+ * een lange gang meer tijd dan het graven zelf. Met `alles` (het woord "collect" achter het
+ * tunnelcommando) doet hij het oude gedrag: alles wat los ligt gaat mee.
  */
-async function sweepMiningDrops(bot, shouldStop) {
+async function sweepMiningDrops(bot, shouldStop, { alles = false } = {}) {
   let collected = 0;
   for (const { entity } of nearbyDrops(bot, MINING.dropSweepRadius)) {
     if (shouldStop()) break;
     if (!entity.isValid) continue;
+    if (!alles && !isWaardevolleDrop(bot, entity)) continue;
     if (await collectDrop(bot, entity)) collected++;
   }
   return collected;
@@ -463,7 +505,7 @@ async function placeChestInWall(bot, cell, gang) {
   return false;
 }
 
-async function mineTunnel(bot, startX, startY, startZ, richting, diepte, hoogte = 2, breedte = 1) {
+async function mineTunnel(bot, startX, startY, startZ, richting, diepte, hoogte = 2, breedte = 1, opts = {}) {
   const dir = DIRECTIONS[richting];
   if (!dir) {
     Logger.warn(`Ongeldige richting: ${richting}`);
@@ -479,7 +521,7 @@ async function mineTunnel(bot, startX, startY, startZ, richting, diepte, hoogte 
 
   const from = new Vec3(Math.floor(startX), Math.floor(startY), Math.floor(startZ));
   const to = from.offset(dir.x * diepte, 0, dir.z * diepte);
-  return mineCorridor(bot, from, to, { hoogte, breedte, label: `${diepte} blokken naar ${richting}` });
+  return mineCorridor(bot, from, to, { ...opts, hoogte, breedte, label: `${diepte} blokken naar ${richting}` });
 }
 
 /**
@@ -491,16 +533,23 @@ async function mineTunnel(bot, startX, startY, startZ, richting, diepte, hoogte 
  * wilde. Dat is de "rare" gangen en de losse gaten naast de tunnel. Nu graaft alleen deze
  * functie, en loopt de bot uitsluitend door de gang die hij zelf al vrijgemaakt heeft.
  */
-async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = null, resumeFrom = 0 } = {}) {
+async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = null, resumeFrom = 0, collect = false, stil = false } = {}) {
   if (!Number.isFinite(hoogte) || !Number.isFinite(breedte) || breedte < 1 || hoogte < 2) {
     bot.chat('Breedte minimaal 1, hoogte minimaal 2!');
-    return;
+    return { gedaan: 0, gestopt: false, ingehaald: false };
+  }
+
+  // Een gang van 20 bij 20 kan hij niet in één doorgang: verder dan vier blokken omhoog en
+  // vier opzij komt hij niet vanaf het looppad. mineRoom() hakt zulke maten in stroken en
+  // lagen en belandt per doorgang gewoon weer hier, met maten die wél kunnen.
+  if (breedte > MINING.maxBreedte || hoogte > MINING.maxHoogte) {
+    return mineRoom(bot, from, to, { hoogte, breedte, label, collect });
   }
 
   const cells = corridorCells(from, to);
   if (cells.length < 2) {
     bot.chat('Dat is geen tunnel, dat is één blok.');
-    return;
+    return { gedaan: 0, gestopt: false, ingehaald: false };
   }
 
   // Elke run claimt een eigen sessienummer. Start er een tweede tunnel (bijvoorbeeld doordat
@@ -523,7 +572,10 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
 
   const describe = label ?? `${cells.length - 1} blokken naar ${to.x} ${to.y} ${to.z}`;
   Logger.info(`MINING START: ${from} -> ${to} (${cells.length} cellen, ${breedte} breed, ${hoogte} hoog)`);
-  bot.chat(`Tunnel: ${describe} (${breedte} breed, ${hoogte} hoog)`);
+  if (!stil) {
+    bot.chat(`Tunnel: ${describe} (${breedte} breed, ${hoogte} hoog)`
+      + (collect ? ', ik raap alles op' : ', ik stop alleen voor erts'));
+  }
 
   let blocksMined = 0;
   let blocksSkipped = 0;
@@ -576,7 +628,9 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
       }
 
       // Onthouden waar we zijn, zodat we na een dood verder kunnen i.p.v. opnieuw te beginnen.
-      botState.lastMineData = { from, to, hoogte, breedte, label, resumeFrom: cellIndex };
+      // collect hoort hierbij: na een dood hervat hij anders in de andere stand dan waar
+      // je om gevraagd had.
+      botState.lastMineData = { from, to, hoogte, breedte, label, collect, resumeFrom: cellIndex };
 
       const freeSlots = bot.inventory.emptySlotCount();
       if (freeSlots <= CONFIG.physics.inventoryFullThreshold) {
@@ -644,7 +698,7 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
       }
 
       if (!shouldStop()) {
-        const swept = await sweepMiningDrops(bot, shouldStop);
+        const swept = await sweepMiningDrops(bot, shouldStop, { alles: collect });
         if (swept > 0) Logger.debug(`${swept} achtergebleven drop(s) opgeraapt bij ${cell}`);
       }
 
@@ -687,18 +741,277 @@ async function mineCorridor(bot, from, to, { hoogte = 2, breedte = 1, label = nu
 
   const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 
+  // Het resultaat gaat terug naar de aanroeper. mineRoom() heeft dat nodig: zonder te weten
+  // dat deze doorgang door !stop is afgebroken, begint hij vrolijk aan de volgende -- en die
+  // zet stopMining bij het starten weer op false.
+  const resultaat = { gedaan: blocksMined, overgeslagen: blocksSkipped, gestopt: stoppedEarly, ingehaald: superseded };
+
   if (superseded) {
     Logger.info(`Mining-run afgebroken (nieuwe tunnel gestart). ${blocksMined} blokken gemineed.`);
-    return;
+    return resultaat;
   }
 
   if (stoppedEarly) {
     Logger.info(`Mining gestopt door gebruiker bij cel ${cellIndex}/${cells.length}. ${blocksMined} blokken gemineed.`);
-    bot.chat(`Mining gestopt (${cellIndex} van ${cells.length} gedaan).`);
+    if (!stil) bot.chat(`Mining gestopt (${cellIndex} van ${cells.length} gedaan).`);
   } else {
     Logger.info(`MINING KLAAR: ${blocksMined} blokken gemineed, ${blocksSkipped} overgeslagen in ${duration}s`);
-    bot.chat(`Tunnel klaar! ${blocksMined} blokken weggegraven.`);
+    if (!stil) bot.chat(`Tunnel klaar! ${blocksMined} blokken weggegraven.`);
   }
+
+  return resultaat;
+}
+
+// ---------------------------------------------------------------------------
+// Grote kamers: stroken en lagen
+// ---------------------------------------------------------------------------
+
+/**
+ * De breedte opdelen in stroken die de bot wél kan bijhouden, van RECHTS naar links.
+ *
+ * crossSection() legt de breedte om de hartlijn heen: bij breedte 9 loopt hij van vier links
+ * tot vier rechts. Een strook van negen tegen de rechterwand heeft zijn hartlijn dus op het
+ * vijfde blok vanaf die wand. De laatste strook links is vaak smaller; die krijgt gewoon wat
+ * er overblijft.
+ *
+ * @returns {{centrum: number, breedte: number}[]} centrum = offset haaks op de looprichting
+ */
+function kamerStroken(breedte, max) {
+  const half = Math.floor(breedte / 2);
+  const links = -half;
+  const stroken = [];
+
+  for (let rechts = breedte - half - 1; rechts >= links;) {
+    const s = Math.min(max, rechts - links + 1);
+    const rand = rechts - s + 1;
+    stroken.push({ centrum: rand + Math.floor(s / 2), breedte: s });
+    rechts = rand - 1;
+  }
+
+  return stroken;
+}
+
+/**
+ * De hoogte opdelen in lagen, van BOVEN naar beneden.
+ *
+ * Van boven beginnen is geen willekeurige keuze: onder elke laag ligt dan nog vaste steen,
+ * dus de bot heeft altijd een vloer. Andersom zou hij na de eerste laag in het luchtledige
+ * moeten staan en zich omhoog moeten torenen, en blokken plaatsen doet deze bot niet.
+ *
+ * @param {number} vloerY de onderste blokrij van de kamer
+ * @returns {{voeten: number, hoogte: number}[]} voeten = op welke hoogte hij staat te graven
+ */
+function kamerLagen(vloerY, hoogte, max) {
+  const lagen = [];
+
+  for (let top = vloerY + hoogte - 1; top >= vloerY;) {
+    const h = Math.min(max, top - vloerY + 1);
+    const voeten = top - h + 1;
+    lagen.push({ voeten, hoogte: h });
+    top = voeten - 1;
+  }
+
+  // Blijft er onderaan één rij over (hoogte 5, 9, 13...), dan leent die er eentje van de laag
+  // erboven. Een doorgang van één hoog bestaat namelijk niet: daar past de bot zelf niet in,
+  // en mineCorridor weigert hem dan ook.
+  const onderste = lagen[lagen.length - 1];
+  if (lagen.length >= 2 && onderste.hoogte === 1) {
+    const erboven = lagen[lagen.length - 2];
+    onderste.hoogte = 2;
+    erboven.voeten += 1;
+    erboven.hoogte -= 1;
+  }
+
+  return lagen;
+}
+
+/**
+ * Zakken naar de volgende laag door onder je eigen voeten weg te graven.
+ *
+ * Dat klinkt roekelozer dan het is: hij valt per blok maar één blokje, en de blokken die hij
+ * weghaalt horen toch bij de laag die hierna aan de beurt is. Het alternatief -- naar beneden
+ * springen -- kost valschade zodra een laag vier hoog is.
+ */
+async function zakNaarLaag(bot, doelY, shouldStop) {
+  for (let stap = 0; stap < MINING.maxAfdaling; stap++) {
+    if (shouldStop()) return false;
+    if (Math.floor(bot.entity.position.y) <= doelY) return true;
+
+    const onder = bot.blockAt(bot.entity.position.offset(0, -1, 0));
+    if (!onder) return false;
+
+    if (LIQUIDS.some(n => onder.name.includes(n)) || UNBREAKABLE.some(n => onder.name.includes(n))) {
+      bot.chat(`Er zit ${onder.name} onder me, ik kan niet dieper.`);
+      return false;
+    }
+    if (lavaNearby(bot, onder.position)) {
+      bot.chat('Lava naast de vloer, ik graaf hier niet verder naar beneden.');
+      return false;
+    }
+
+    await equipBestTool(bot, onder.name);
+    if (!await safeDig(bot, onder, 15000, shouldStop)) return false;
+
+    // Even wachten tot hij echt gevallen is; anders graaft hij het volgende blok weg terwijl
+    // hij nog op het oude niveau hangt en zakt hij per saldo niets.
+    await new Promise(resolve => setTimeout(resolve, MINING.descendDelay));
+  }
+
+  return Math.floor(bot.entity.position.y) <= doelY;
+}
+
+/**
+ * Een kamer uitgraven die te groot is voor één doorgang.
+ *
+ * De kamer wordt in stroken (maxBreedte) en lagen (maxHoogte) geknipt, en elke strook is
+ * gewoon weer een doorgang van mineCorridor -- inclusief fakkels, wandkisten, lava-omzeiling
+ * en het oprapen van erts. De volgorde is waar het hier om gaat:
+ *
+ *  1. Eerst een TRAP van één breed schuin omhoog naar de bovenste laag. corridorCells() zet
+ *     per stap maar één as om, dus een schuine lijn wordt vanzelf een traptrede: één vooruit,
+ *     één omhoog. Die trap ligt binnen de kamer en verdwijnt dus vanzelf als de lagen eronder
+ *     aan de beurt komen. Daarom moet de kamer wel minstens zo lang zijn als hij hoog is.
+ *  2. Per laag van rechts naar links, strook voor strook, om en om heen en terug. De eerste
+ *     strook ligt tegen de rechterwand met zijn hartlijn op het vijfde blok.
+ *  3. Aan het eind van een laag graaft hij zich ter plekke naar beneden en begint de volgende
+ *     laag aan de kant waar hij toevallig al staat.
+ */
+async function mineRoom(bot, from, to, { hoogte = 2, breedte = 1, label = null, collect = false } = {}) {
+  const verschil = to.minus(from);
+  if (verschil.y !== 0 || (verschil.x !== 0 && verschil.z !== 0)) {
+    bot.chat('Voor zo\'n grote kamer moet ik een rechte richting hebben, bv. !tunnel oost 20 20 20.');
+    return { gedaan: 0, gestopt: false, ingehaald: false };
+  }
+
+  const perp = verschil.x !== 0 ? new Vec3(0, 0, 1) : new Vec3(1, 0, 0);
+  const lengte = Math.abs(verschil.x) + Math.abs(verschil.z) + 1;
+
+  const stroken = kamerStroken(breedte, MINING.maxBreedte);
+  const lagen = kamerLagen(from.y, hoogte, MINING.maxHoogte);
+
+  // De trap heeft per blok omhoog een blok vooruit nodig. Past dat niet in de lengte van de
+  // kamer, dan komt hij nooit boven en heeft beginnen geen zin.
+  const klim = lagen[0].voeten - from.y;
+  if (klim > lengte - 1) {
+    bot.chat(`Deze kamer is ${hoogte} hoog maar maar ${lengte} lang; daar kan ik geen trap in graven.`);
+    bot.chat('Maak hem langer, of lager dan de lengte.');
+    return { gedaan: 0, gestopt: false, ingehaald: false };
+  }
+
+  const shouldStop = () => botState.stopMining;
+  const totaal = { gedaan: 0, overgeslagen: 0, gestopt: false, ingehaald: false };
+  const doorgangen = stroken.length * lagen.length;
+
+  Logger.info(`KAMER START: ${lengte}x${breedte}x${hoogte}, ${stroken.length} stroken x ${lagen.length} lagen`);
+  bot.chat(`Kamer van ${lengte} lang, ${breedte} breed, ${hoogte} hoog: ${doorgangen} doorgangen.`);
+  bot.chat(`Ik graaf eerst een trap ${klim} omhoog en werk dan van boven naar beneden.`);
+
+  let omgekeerd = false;
+
+  try {
+    for (const [laagNr, laag] of lagen.entries()) {
+      // Om en om van rechts naar links en terug: zo begint een nieuwe laag aan de kant waar
+      // de vorige ophield, in plaats van eerst de hele breedte terug te lopen.
+      const rij = laagNr % 2 === 0 ? stroken : [...stroken].reverse();
+      const dy = laag.voeten - from.y;
+
+      for (const [strookNr, strook] of rij.entries()) {
+        const heen = from.plus(perp.scaled(strook.centrum)).offset(0, dy, 0);
+        const terug = to.plus(perp.scaled(strook.centrum)).offset(0, dy, 0);
+        const [start, eind] = omgekeerd ? [terug, heen] : [heen, terug];
+
+        if (strookNr === 0) {
+          // Tussen twee doorgangen staat isMining op false (de vorige doorgang heeft zijn
+          // finally al gedraaid). Hier weer aan, zodat !stop en de andere taken zien dat de
+          // bot nog bezig is terwijl hij klimt of zakt.
+          botState.isMining = true;
+
+          const gelukt = laagNr === 0
+            ? await trapNaarBoven(bot, from, start, collect, shouldStop)
+            : await naarStart(bot, start, lagen[laagNr - 1].voeten, shouldStop);
+
+          if (!gelukt) {
+            totaal.gestopt = true;
+            break;
+          }
+        }
+
+        const pas = await mineCorridor(bot, start, eind, {
+          hoogte: laag.hoogte, breedte: strook.breedte, collect, stil: true,
+          label: `laag ${laagNr + 1}/${lagen.length}, strook ${strookNr + 1}/${rij.length}`,
+        });
+
+        totaal.gedaan += pas.gedaan ?? 0;
+        totaal.overgeslagen += pas.overgeslagen ?? 0;
+        omgekeerd = !omgekeerd;
+
+        if (pas.ingehaald) { totaal.ingehaald = true; break; }
+        if (pas.gestopt) { totaal.gestopt = true; break; }
+      }
+
+      if (totaal.gestopt || totaal.ingehaald) break;
+      bot.chat(`Laag ${laagNr + 1} van ${lagen.length} klaar (${totaal.gedaan} blokken tot nu toe).`);
+    }
+  } catch (err) {
+    Logger.error('Kamerfout', err);
+    bot.chat('Er ging iets mis met de kamer.');
+  } finally {
+    // Zelfde reden als in mineCorridor: is er intussen een nieuwe tunnel gestart, dan is deze
+    // state niet meer van ons en moeten we hem met rust laten.
+    if (!totaal.ingehaald) {
+      botState.isMining = false;
+      botState.stopMining = false;
+      botState.lastMineData = null;
+      setMovements(bot, { canDig: false, canPlace: false, allowSprinting: true });
+    }
+  }
+
+  Logger.info(`KAMER ${totaal.gestopt ? 'GESTOPT' : 'KLAAR'}: ${totaal.gedaan} blokken, ${totaal.overgeslagen} overgeslagen`);
+  if (totaal.ingehaald) return totaal;
+
+  if (totaal.gestopt) bot.chat(`Gestopt met de kamer, ${totaal.gedaan} blokken weggegraven.`);
+  else bot.chat(`Kamer klaar! ${totaal.gedaan} blokken weggegraven${label ? ` (${label})` : ''}.`);
+
+  return totaal;
+}
+
+/**
+ * De trap naar de bovenste laag: één breed, twee hoog, schuin omhoog.
+ *
+ * Begint de bot er al (een kamer die wel breed maar niet hoog is), dan valt er niets te
+ * klimmen en wordt er ook niets gegraven -- anders krijg je "dat is geen tunnel, dat is één
+ * blok" in de chat.
+ */
+async function trapNaarBoven(bot, from, start, collect, shouldStop) {
+  if (start.equals(from)) return true;
+
+  const trap = await mineCorridor(bot, from, start, {
+    breedte: 1, hoogte: 2, collect, stil: true, label: 'trap omhoog',
+  });
+  return !trap.gestopt && !trap.ingehaald && !shouldStop();
+}
+
+/**
+ * Van de net leeggegraven laag naar het begin van de volgende: eerst er bovenop gaan staan,
+ * dan onder je eigen voeten weg naar beneden.
+ */
+async function naarStart(bot, start, vorigeVoeten, shouldStop) {
+  setMovements(bot, { canDig: true, canPlace: false });
+  try {
+    await abortable(
+      bot.pathfinder.goto(new goals.GoalBlock(start.x, vorigeVoeten, start.z)),
+      shouldStop,
+      () => bot.pathfinder.stop()
+    );
+  } catch (err) {
+    Logger.warn(`Kon niet boven het volgende startpunt komen: ${err.message}`);
+    // Niet fataal: zakken kan ook vanaf de plek waar hij nu staat, mineCorridor loopt daarna
+    // zelf naar het begin van de strook.
+  }
+  setMovements(bot, { canDig: false, canPlace: false });
+
+  if (shouldStop()) return false;
+  return zakNaarLaag(bot, start.y, shouldStop);
 }
 
 async function restoreGoal(bot) {
@@ -706,10 +1019,10 @@ async function restoreGoal(bot) {
     // resumeFrom: na een dood gaat hij verder waar hij gebleven was. Eerder begon hij de
     // hele tunnel opnieuw vanaf het begin, wat bij een lange gang minutenlang door al
     // uitgegraven gang lopen betekende.
-    const { from, to, hoogte, breedte, label, resumeFrom } = botState.lastMineData;
+    const { from, to, hoogte, breedte, label, collect, resumeFrom } = botState.lastMineData;
     Logger.info(`Tunnel hervatten vanaf cel ${resumeFrom}`);
     await mineCorridor(bot, new Vec3(from.x, from.y, from.z), new Vec3(to.x, to.y, to.z),
-      { hoogte, breedte, label, resumeFrom });
+      { hoogte, breedte, label, collect, resumeFrom });
   } else if (botState.lastGoal) {
     const goal = botState.lastGoal;
     if (goal.type === 'goto') {
@@ -724,4 +1037,4 @@ async function restoreGoal(bot) {
   }
 }
 
-module.exports = { mineTunnel, mineCorridor, corridorCells, crossSection, chestAlcoves, placeChestInWall, storeBlocksInChest, restoreGoal, safeDig };
+module.exports = { mineTunnel, mineCorridor, mineRoom, kamerStroken, kamerLagen, corridorCells, crossSection, chestAlcoves, placeChestInWall, storeBlocksInChest, sweepMiningDrops, isWaardevolleDrop, restoreGoal, safeDig };

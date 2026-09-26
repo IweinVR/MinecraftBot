@@ -189,6 +189,8 @@ Deze module is het brein achter het gestructureerd uitgraven van tunnels en gang
 * **Tunnel via kompas:** Typ `!tunnel noord 20` (of zuid, oost, west) om een rechte gang van 20 blokken lang te graven.
 * **Tunnel naar doel:** Typ `!tunnel naar <x> <y> <z>` of `!tunnel naar mij` om de bot een gang te laten graven richting een specifiek punt of speler.
 * **Afmetingen aanpassen:** Zonder extra getallen graaft de bot standaard een gang van 1 breed bij 2 hoog. Voeg breedte en hoogte toe aan het einde van je commando om dat te veranderen, bijvoorbeeld: `!tunnel noord 20 3 3` voor een gang van 3 bij 3. Dit werkt bij elke tunnelvorm, dus ook `!tunnel naar mij 3 3` of `!tunnel naar <x> <y> <z> 3 3`.
+* **Grote zalen:** Vraag gerust `!tunnel oost 20 20 20`. Verder dan ongeveer 4 blokken omhoog en 4 opzij reikt de bot niet vanaf zijn looppad, dus grotere maten worden automatisch in **stroken van 9 breed** en **lagen van 4 hoog** geknipt. Kleine tunnels merken hier niets van.
+* **Oprapen regelen:** Standaard graaft de bot dóór en loopt hij alleen om voor **erts**; steen, aarde en grind laat hij liggen. Wil je toch alles hebben, zet dan `collect` achter het commando: `!tunnel oost 50 3 3 collect`. Dat werkt achter élke tunnelvorm.
 * **Stoppen:** Typ `!stopmine` (of `!stop`) om de graafwerkzaamheden onmiddellijk te staken.
 
 **Slimme Beveiligingen (Fail-safes)**
@@ -197,7 +199,10 @@ Deze module is het brein achter het gestructureerd uitgraven van tunnels en gang
 * **Zwaartekracht-correctie (`digFallingBlocks`):** Blokken zoals grind, zand en aambeelden vallen naar beneden als je de vloer weghaalt. De bot wacht kort, detecteert of er iets gevallen is, en ruimt dit direct op zodat de tunnel echt netjes leeg is.
 * **Lava Ontwijking (`lavaNearby`):** Voordat een blok gebroken wordt, scant de bot de 6 direct omliggende blokken. Ligt er lava tegenaan? Dan wordt het blok overgeslagen (`Lava in de weg, ik graaf er omheen!`), zodat de tunnel niet plotseling volstroomt.
 * **Water en lava overslaan als graafdoel:** Minecraft-data noemt water zelfs `diggable: true`, maar door zijn hardheid (100) rekent `bot.dig()` er een graaftijd van tientallen seconden voor uit in plaats van de `Infinity` die een écht onbreekbaar blok krijgt. Zonder deze check bleef de bot dus een volle `safeDig`-timeout stilstaan te "graven" aan water (of aan lava die toevallig recht in het pad ligt) zonder dat er ooit iets kapotging. Beide worden nu net als lucht meteen overgeslagen: lopen of zwemmen erdoorheen kan gewoon.
-* **Drops per laag opruimen (`sweepMiningDrops`):** In een brede of hoge gang valt niet elk gebroken blok binnen Minecrafts oprapradius van het looppad. Na elke laag kijkt de bot daarom kort om zich heen en loopt hij naar wat is blijven liggen, in plaats van dat pas aan het einde van de hele tunnel te ontdekken.
+* **Drops per laag opruimen (`sweepMiningDrops`):** In een brede of hoge gang valt niet elk gebroken blok binnen Minecrafts oprapradius van het looppad. Na elke laag kijkt de bot daarom kort om zich heen naar wat is blijven liggen, in plaats van dat pas aan het einde van de hele tunnel te ontdekken.
+  * *Alleen erts, tenzij je om alles vraagt:* voor élk blok omlopen betekent dat de bot bij iedere rij van zijn graafpunt wegloopt naar elke losse brok steen en weer terug — bij een lange gang kost dat meer tijd dan het graven zelf. Daarom stopt hij standaard alleen voor erts en wat daaruit komt (`isWaardevolleDrop`). Met `collect` achter het commando krijg je het oude gedrag: alles gaat mee.
+  * Wat als erts telt komt uit de categorieën in `data/categories.js` (`erts`, `metaal_en_edelsteen`, `grondstofblokken`), plus een handvol losse namen als `redstone` — die valt daar bij de zuigers en rails, maar is natuurlijk gewoon een ertsdrop. Zo staat er niet nóg een lijst met "wat is waardevol" in de bot.
+  * De stand wordt onthouden in `lastMineData`, dus na een dood hervat hij in dezelfde modus als waar je om vroeg.
 * **Voorraadkisten onderweg (`placeChestInWall`):** Om de zoveel fakkels (`chestPerTorches`, standaard elke tweede — dus vanaf fakkel twee, niet bij de eerste) graaft de bot een nis van één blok in de wand en zet daar een kist in. Zo staat er altijd een kist binnen tien blokken zodra zijn tas volloopt.
   * *Waarom in de wand:* een kist in de gang zelf blokkeert hem. De graaflus slaat kisten bewust over (anders sloopt hij zijn eigen voorraad), dus zo'n kist blijft staan en de bot kan er in een gang van één breed niet meer langs. In een bocht wordt bovendien gecontroleerd of de nis niet op het pad van het volgende stuk gang ligt; dan kiest hij de andere wand.
   * *Waarom vooraf:* de oude aanpak plaatste pas een kist als de inventaris al vol was, en mikte dan op de cel waar de bot zelf stond — een cel die vaak ook nog dichtgemetseld was. In je eigen hitbox of in massief steen kun je niets plaatsen, dus dat mislukte vrijwel altijd. Een nis graaft hij zelf, dus daar is per definitie plek.
@@ -205,11 +210,22 @@ Deze module is het brein achter het gestructureerd uitgraven van tunnels en gang
 * **Auto-Opslag (`storeBlocksInChest`):** Raakt de inventaris vol? De bot zoekt een kist in de buurt (meestal een van zijn eigen wandkisten), en anders graaft hij ter plekke een nis en zet er een neer. Daarna slaat hij alle onnodige blokken op en werkt hij verder.
 * **Slim Hervatten (`resumeFrom`):** Als de bot doodgaat, vlucht of herstart, onthoudt hij exact bij welke cel hij was gebleven (`lastMineData`). Hierdoor hoeft hij niet minutenlang in het niets te hakken om een al uitgegraven tunnel opnieuw te verwerken.
 
+**Grote kamers (`mineRoom`)**
+Een zaal van 20x20 is niet één tunnel maar een stapel doorgangen, en de vólgorde daarvan is het hele verhaal:
+
+1. **Van boven naar beneden.** Onder elke laag ligt dan nog vaste steen, dus de bot heeft altijd een vloer. Andersom zou hij na de eerste laag in het luchtledige moeten staan en zich omhoog moeten torenen — en blokken plaatsen doet deze bot niet.
+2. **Eerst een trap omhoog.** Naar de bovenste laag graaft hij een gang van 1 breed en 2 hoog schuin omhoog. Dat werkt omdat `corridorCells()` per stap maar één as omzet: een schuine lijn wordt vanzelf een traptrede (één vooruit, één omhoog). Die trap ligt binnen de kamer en verdwijnt dus vanzelf zodra de lagen eronder aan de beurt komen. Wel een voorwaarde: de kamer moet minstens zo lang zijn als hij hoog is, anders is de trap te steil om op te lopen en zegt de bot dat meteen.
+3. **Helemaal naar rechts beginnen.** De eerste strook ligt tegen de rechterwand, met zijn hartlijn op het vijfde blok vanaf die wand — de helft van negen. Daarna schuift hij strook voor strook naar links.
+4. **Heen en terug.** Elke volgende strook graaft hij in de andere richting, en de stroken van een nieuwe laag lopen ook weer de andere kant op. Zo begint hij elke keer aan de kant waar hij toch al stond in plaats van leeg terug te lopen.
+5. **Zakken onder zijn eigen voeten.** Aan het eind van een laag loopt hij naar het startpunt van de volgende en graaft hij het blok onder zich weg, vier keer achter elkaar. Hij valt per keer één blokje (dus geen valschade), en die blokken horen toch bij de laag die hierna komt.
+
+De opdeling is nagerekend: voor maten van 20x20x20 tot 11 breed bij 13 hoog dekken alle stroken en lagen samen precies de gevraagde blokken — geen gat, geen blok dubbel, en nooit een laag van één hoog (waar de bot zelf niet in past). Elke doorgang is verder gewoon `mineCorridor`, dus fakkels, wandkisten, lava-ontwijking en het oprapen van erts werken er net zo goed in.
+
 **Stap-voor-stap Werking**
 1. **Traject Berekenen (`corridorCells`):** Maakt een vloerplan aan naar het doelpunt. Er wordt altijd maar op één as tegelijk bewogen. Dit zorgt voor nette trappen en voorkomt diagonale sprongen waar de bot zelf niet doorheen past.
 2. **Gereedschap Kiezen (`equipBestTool`):** Kiest dynamisch het perfecte gereedschap uit de `TOOL_PREFERENCES` (bijl voor hout, schep voor zand, houweel voor steen) om de duurzaamheid en snelheid te optimaliseren.
 3. **Breken (`safeDig`):** Het blok wordt gebroken met een strakke timeout (15 seconden). Als de server lagt of het blok niet breekt, blijft de bot niet voor eeuwig hangen.
-4. **Opruimen (`sweepMiningDrops`):** Na de kruisdoorsnede van een laag kijkt de bot om zich heen naar drops binnen een paar blokken en raapt ze op.
+4. **Opruimen (`sweepMiningDrops`):** Na de kruisdoorsnede van een laag kijkt de bot om zich heen naar drops binnen een paar blokken. Zonder `collect` loopt hij alleen om voor erts; met `collect` raapt hij alles op.
 5. **Verlichting en voorraad (`placeBlock`):** Op vaste intervallen (`torchPlaceInterval`) plaatst de bot automatisch fakkels, bij voorkeur op de vloer in plaats van aan de muren. Bij elke tweede fakkel (`chestPerTorches`) graaft hij er een nis naast en zet daar een voorraadkist in.
 
 

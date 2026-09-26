@@ -253,6 +253,8 @@ function handleCommand(bot, username, message) {
       bot.chat('Overig: !stop | !pos | !bed | !die | !stopmine | !collect blok aantal');
       bot.chat('Tunnel: !tunnel naar x y z | !tunnel naar mij | !tunnel noord 20');
       bot.chat('  grootte: zet "breedte hoogte" achter ELKE tunnelvorm, bv. !tunnel noord 20 3 3 (standaard is 1 breed, 2 hoog)');
+      bot.chat('  oprapen: standaard stopt hij alleen voor erts; zet "collect" erachter voor alles, bv. !tunnel oost 50 3 3 collect');
+      bot.chat('  grote zaal: vraag gerust !tunnel oost 20 20 20 — hij hakt het zelf in stroken van 9 en lagen van 4, van boven naar beneden');
       bot.chat('Boeren: !farm (alles: graan, meloen/pompoen, bessen, riet/bamboe, fungi) | !stopfarm');
       bot.chat('  één gewas: !farm tarwe | !farm wortels | !farm pompoen | !farm suikerriet (hij maakt dat gewas eerst helemaal af)');
       bot.chat('Fokken: !breed (voert koeien, schapen, varkens, kippen... met het juiste voer)');
@@ -440,6 +442,13 @@ function handleCommand(bot, username, message) {
   }
 
   // ---------------------------------------------------------------- TUNNEL
+  // "collect" achter welke tunnelvorm dan ook zet het oprapen aan: dan stopt hij per rij voor
+  // álles wat er los ligt, ook steen en aarde. Zonder dat woord graaft hij door en loopt hij
+  // alleen om voor erts. Hier één keer van het bericht afgehaald, zodat elke vorm hieronder
+  // het ondersteunt zonder dat er zeven regexen een extra staartje krijgen.
+  const collect = /^!tunnel .+\scollect$/i.test(message);
+  if (collect) message = message.replace(/\s+collect$/i, '');
+
   // De kijkrichting is als primaire invoer vervangen door een doelpunt. Reden: yaw wordt
   // op vier windrichtingen afgerond, en kijk je schuin (of net over een grens), dan kiest
   // hij een richting die niet voelt als wat je bedoelde. Een coördinaat of "naar mij" is
@@ -458,7 +467,7 @@ function handleCommand(bot, username, message) {
     const to = floorPos(target.position);
     botState.shouldRestore = true;
     startCorridor(bot, bot.entity.position.floored(), new Vec3(to.x, to.y, to.z),
-      { breedte, hoogte, label: `naar ${username}` });
+      { breedte, hoogte, collect, label: `naar ${username}` });
     return;
   }
 
@@ -470,7 +479,7 @@ function handleCommand(bot, username, message) {
     const hoogte = h ? Number(h) : 2;
     botState.shouldRestore = true;
     startCorridor(bot, bot.entity.position.floored(), new Vec3(Number(x), Number(y), Number(z)),
-      { breedte, hoogte, label: `naar ${x} ${y} ${z}` });
+      { breedte, hoogte, collect, label: `naar ${x} ${y} ${z}` });
     return;
   }
 
@@ -482,7 +491,7 @@ function handleCommand(bot, username, message) {
     const hoogte = h ? Number(h) : 2;
     botState.shouldRestore = true;
     startCorridor(bot, new Vec3(Number(fx), Number(fy), Number(fz)), new Vec3(Number(tx), Number(ty), Number(tz)),
-      { breedte, hoogte, label: `van ${fx} ${fy} ${fz} naar ${tx} ${ty} ${tz}` });
+      { breedte, hoogte, collect, label: `van ${fx} ${fy} ${fz} naar ${tx} ${ty} ${tz}` });
     return;
   }
 
@@ -499,7 +508,7 @@ function handleCommand(bot, username, message) {
     const dir = DIRECTIONS[richting];
     const start = bot.entity.position.floored().offset(dir.x, 0, dir.z);
     startCorridor(bot, start, start.offset(dir.x * (Number(lengte) - 1), 0, dir.z * (Number(lengte) - 1)),
-      { breedte, hoogte, label: `${lengte} blokken naar het ${COMPASS_NL[richting]}` });
+      { breedte, hoogte, collect, label: `${lengte} blokken naar het ${COMPASS_NL[richting]}` });
     return;
   }
 
@@ -514,7 +523,7 @@ function handleCommand(bot, username, message) {
     }
     const pos = floorPos(target.position);
     botState.shouldRestore = true;
-    startTunnel(bot, pos.x, pos.y, pos.z, richting, Number(diepte), Number(hoogte), Number(breedte));
+    startTunnel(bot, pos.x, pos.y, pos.z, richting, Number(diepte), Number(hoogte), Number(breedte), { collect });
     return;
   }
 
@@ -522,7 +531,7 @@ function handleCommand(bot, username, message) {
   if (match) {
     const [, x, y, z, richting, diepte, hoogte, breedte] = match;
     botState.shouldRestore = true;
-    startTunnel(bot, Number(x), Number(y), Number(z), richting, Number(diepte), Number(hoogte), Number(breedte));
+    startTunnel(bot, Number(x), Number(y), Number(z), richting, Number(diepte), Number(hoogte), Number(breedte), { collect });
     return;
   }
 
@@ -545,7 +554,7 @@ function handleCommand(bot, username, message) {
     const start = new Vec3(pos.x, pos.y, pos.z).offset(dir.x, 0, dir.z);
     botState.shouldRestore = true;
     startCorridor(bot, start, start.offset(dir.x * (Number(lengte) - 1), 0, dir.z * (Number(lengte) - 1)),
-      { breedte, hoogte, label: `${lengte} blokken naar het ${COMPASS_NL[richting]}` });
+      { breedte, hoogte, collect, label: `${lengte} blokken naar het ${COMPASS_NL[richting]}` });
     return;
   }
 
